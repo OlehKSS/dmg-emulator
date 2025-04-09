@@ -11,36 +11,38 @@ pub struct CartridgeHeader {
     licensee: String,
     title: String,
     rom_size: u32,
-    rom_type: String,
+    rom_type: u8,
+    rom_type_name: String,
     rom_version: u8,
     ram_size: u32,
     header_checksum: u8,
-    global_checksum: u16
+    global_checksum: u16,
 }
 
 impl CartridgeHeader {
-    pub fn build(rom_contents: &Vec<u8>) -> Result<Self, Box<dyn Error>> {
+    pub fn load(rom_contents: &Vec<u8>) -> Result<Self, Box<dyn Error>> {
         let nintendo_logo;
 
         if let Ok(logo) = rom_contents[0x104..=0x133].try_into() {
             nintendo_logo = logo;
         } else {
-            nintendo_logo  = [0 as u8; 48];
+            nintendo_logo = [0 as u8; 48];
         }
 
         Ok(CartridgeHeader {
-            destination: String::from(CartridgeHeader::get_destination(rom_contents)), 
+            destination: String::from(CartridgeHeader::get_destination(rom_contents)),
             nintendo_logo: nintendo_logo,
             cgb_flag: rom_contents[0x0143] == 0x80 || rom_contents[0x0143] == 0xC0,
             sgb_flag: rom_contents[0x146] == 0x03,
             licensee: String::from(CartridgeHeader::get_licensee(rom_contents)),
             title: CartridgeHeader::get_game_title(rom_contents),
             rom_size: CartridgeHeader::get_rom_size(rom_contents),
-            rom_type: String::from(CartridgeHeader::get_rom_type(rom_contents)),
+            rom_type: rom_contents[0x147],
+            rom_type_name: String::from(CartridgeHeader::get_rom_type(rom_contents)),
             rom_version: rom_contents[0x14C],
             ram_size: CartridgeHeader::get_ram_size(rom_contents),
             header_checksum: rom_contents[0x14D],
-            global_checksum: CartridgeHeader::get_global_checksum(rom_contents)
+            global_checksum: CartridgeHeader::get_global_checksum(rom_contents),
         })
     }
 
@@ -74,8 +76,8 @@ impl CartridgeHeader {
                     } else {
                         break;
                     }
-                },
-                None => break
+                }
+                None => break,
             }
         }
 
@@ -83,7 +85,7 @@ impl CartridgeHeader {
     }
 
     fn get_destination(rom_contents: &Vec<u8>) -> &'static str {
-        if rom_contents[0x014A] == 0 { 
+        if rom_contents[0x014A] == 0 {
             "Japan"
         } else {
             "Overseas"
@@ -92,15 +94,15 @@ impl CartridgeHeader {
 
     fn get_rom_size(rom_contents: &Vec<u8>) -> u32 {
         let known_sizes: HashMap<u8, u32> = HashMap::from([
-            (0x00, 32 * 1024),    // 32 KiB, 2 banks (no banking)
-            (0x01, 64 * 1024),    // 64 KiB, 4 banks
-            (0x02, 128 * 1024),   // 128 KiB, 8 banks
-            (0x03, 256 * 1024),   // 256 KiB, 16 banks
-            (0x04, 512 * 1024),   // 512 KiB, 32 banks
-            (0x05, 1 * 1024 * 1024),  // 1 MiB, 64 banks
-            (0x06, 2 * 1024 * 1024),  // 2 MiB, 128 banks
-            (0x07, 4 * 1024 * 1024),  // 4 MiB, 256 banks
-            (0x08, 8 * 1024 * 1024),  // 8 MiB, 512 banks
+            (0x00, 32 * 1024),           // 32 KiB, 2 banks (no banking)
+            (0x01, 64 * 1024),           // 64 KiB, 4 banks
+            (0x02, 128 * 1024),          // 128 KiB, 8 banks
+            (0x03, 256 * 1024),          // 256 KiB, 16 banks
+            (0x04, 512 * 1024),          // 512 KiB, 32 banks
+            (0x05, 1 * 1024 * 1024),     // 1 MiB, 64 banks
+            (0x06, 2 * 1024 * 1024),     // 2 MiB, 128 banks
+            (0x07, 4 * 1024 * 1024),     // 4 MiB, 256 banks
+            (0x08, 8 * 1024 * 1024),     // 8 MiB, 512 banks
             (0x52, 1_048_576 + 131_072), // 1.1 MiB, 72 banks
             (0x53, 1_048_576 + 262_144), // 1.2 MiB, 80 banks
             (0x54, 1_048_576 + 524_288), // 1.5 MiB, 96 banks
@@ -116,12 +118,13 @@ impl CartridgeHeader {
     }
 
     fn get_ram_size(rom_contents: &Vec<u8>) -> u32 {
-        let known_sizes: [u32; 6] = [0,
+        let known_sizes: [u32; 6] = [
             0,
-            8 * 1024 /*KiB, 1 bank*/,
-            32 * 1024 /* 4 banks of 8 KiB each */, 
-            128 * 1024 /* 16 banks of 8 KiB each */,
-            64 * 1024 /* 8 banks of 8 KiB each */
+            0,
+            8 * 1024,   /*KiB, 1 bank*/
+            32 * 1024,  /* 4 banks of 8 KiB each */
+            128 * 1024, /* 16 banks of 8 KiB each */
+            64 * 1024,  /* 8 banks of 8 KiB each */
         ];
 
         let size_byte = rom_contents[0x149] as usize;
@@ -264,7 +267,10 @@ impl CartridgeHeader {
             (0x30, "Infogrames5"),
             (0x31, "Nintendo"),
             (0x32, "Bandai"),
-            (0x33, "Indicates that the New licensee code should be used instead."),
+            (
+                0x33,
+                "Indicates that the New licensee code should be used instead.",
+            ),
             (0x34, "Konami"),
             (0x35, "HectorSoft"),
             (0x38, "Capcom"),
@@ -397,18 +403,27 @@ impl CartridgeHeader {
             if let Some(name) = old_licensee_map.get(&rom_contents[0x014B]) {
                 return name;
             } else {
-                eprintln!("Invalid old licensee hex code 0x{:X}.", rom_contents[0x014B]);
+                eprintln!(
+                    "Invalid old licensee hex code 0x{:X}.",
+                    rom_contents[0x014B]
+                );
             }
         } else {
             if let Ok(code) = String::from_utf8(rom_contents[0x144..=0x145].to_vec()) {
                 if let Some(name) = new_licensee_map.get(code.as_str()) {
                     return name;
                 } else {
-                    eprintln!("Invalid new licensee ASCII code [0x{}, 0x{}]", rom_contents[0x144], rom_contents[0x145]);
+                    eprintln!(
+                        "Invalid new licensee ASCII code [0x{}, 0x{}]",
+                        rom_contents[0x144], rom_contents[0x145]
+                    );
                 }
             } else {
-                eprintln!("Invalid new licensee ASCII code [0x{}, 0x{}]", rom_contents[0x144], rom_contents[0x145]);
-            }           
+                eprintln!(
+                    "Invalid new licensee ASCII code [0x{}, 0x{}]",
+                    rom_contents[0x144], rom_contents[0x145]
+                );
+            }
         }
 
         return "";
@@ -416,29 +431,44 @@ impl CartridgeHeader {
 }
 
 pub struct Cartridge {
-    pub file_name: String,
-    pub rom_size: u32,
-    pub rom_data: Vec<u8>,
-    pub rom_header: CartridgeHeader,
+    pub file: String,
+    pub size: u32,
+    pub data: Vec<u8>,
+    pub header: CartridgeHeader,
 }
 
 impl Cartridge {
-    pub fn read(file: &str) -> Result<Self, Box<dyn Error>> {
+    pub fn load(file: &str) -> Result<Self, Box<dyn Error>> {
         let rom_contents = fs::read(file)?;
 
         assert!(rom_contents.len() > 0x14F + 1);
 
-        let rom_header = CartridgeHeader::build(&rom_contents)?;
+        let rom_header = CartridgeHeader::load(&rom_contents)?;
 
-        assert_eq!(CartridgeHeader::checksum(&rom_contents), rom_header.header_checksum);
+        assert_eq!(
+            CartridgeHeader::checksum(&rom_contents),
+            rom_header.header_checksum
+        );
 
-        println!("{rom_header:?}");
+        println!("Cartridge Loaded:");
+        println!("\t Title    : {}", rom_header.title);
+        println!(
+            "\t Type     : {} ({})",
+            rom_header.rom_type, rom_header.rom_type_name
+        );
+        println!("\t ROM Size : {} KB", rom_header.rom_size / 1024);
+        println!("\t RAM Size : {} KB", rom_header.ram_size / 1024);
+        println!(
+            "\t LIC Code : {} ({})",
+            rom_contents[0x014B], rom_header.licensee
+        );
+        println!("\t ROM Vers : {}", rom_header.rom_version);
 
-        return Ok(Cartridge { 
-            file_name: file.to_string(), 
-            rom_size: rom_contents.len() as u32, 
-            rom_data: rom_contents,
-            rom_header: rom_header,
+        return Ok(Cartridge {
+            file: file.to_string(),
+            size: rom_contents.len() as u32,
+            data: rom_contents,
+            header: rom_header,
         });
     }
 }

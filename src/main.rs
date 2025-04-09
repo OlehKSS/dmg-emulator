@@ -1,7 +1,7 @@
 use std::env;
 use std::process;
 
-use dmg01emu::Cartridge;
+use dmg01emu::emu::Emulator;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -15,8 +15,10 @@ fn main() {
 
     println!("Reading {rom_file}");
 
-    if let Err(e) = Cartridge::read(&rom_file) {
-        eprintln!("Error reading ROM {e}");
+    let mut dmg_emu = Emulator::new();
+
+    if let Err(e) = dmg_emu.run(&rom_file) {
+        eprintln!("Error running emulator {e}");
         process::exit(1);
     }
 }
