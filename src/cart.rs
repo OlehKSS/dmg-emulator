@@ -3,6 +3,7 @@ use std::error::Error;
 use std::fs;
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct CartridgeHeader {
     destination: String,
     nintendo_logo: [u8; 48],
@@ -20,18 +21,18 @@ pub struct CartridgeHeader {
 }
 
 impl CartridgeHeader {
-    pub fn load(rom_contents: &Vec<u8>) -> Result<Self, Box<dyn Error>> {
+    pub fn load(rom_contents: &[u8]) -> Result<Self, Box<dyn Error>> {
         let nintendo_logo;
 
         if let Ok(logo) = rom_contents[0x104..=0x133].try_into() {
             nintendo_logo = logo;
         } else {
-            nintendo_logo = [0 as u8; 48];
+            nintendo_logo = [0_u8; 48];
         }
 
         Ok(CartridgeHeader {
             destination: String::from(CartridgeHeader::get_destination(rom_contents)),
-            nintendo_logo: nintendo_logo,
+            nintendo_logo,
             cgb_flag: rom_contents[0x0143] == 0x80 || rom_contents[0x0143] == 0xC0,
             sgb_flag: rom_contents[0x146] == 0x03,
             licensee: String::from(CartridgeHeader::get_licensee(rom_contents)),
@@ -46,21 +47,21 @@ impl CartridgeHeader {
         })
     }
 
-    pub fn checksum(rom_contents: &Vec<u8>) -> u8 {
+    pub fn checksum(rom_contents: &[u8]) -> u8 {
         let mut sum: u8 = 0;
-        for i in 0x0134..=0x014C {
+        for byte in &rom_contents[0x0134..=0x014C] {
             // Subtraction with overflow is not associative
-            sum = sum.wrapping_sub(rom_contents[i]).wrapping_sub(1);
+            sum = sum.wrapping_sub(*byte).wrapping_sub(1);
         }
 
-        return sum;
+        sum
     }
 
-    fn get_global_checksum(rom_contents: &Vec<u8>) -> u16 {
-        (rom_contents[0x14E] as u16) << 8 | (rom_contents[0x14F] as u16)
+    fn get_global_checksum(rom_contents: &[u8]) -> u16 {
+        ((rom_contents[0x14E] as u16) << 8) | (rom_contents[0x14F] as u16)
     }
 
-    fn get_game_title(rom_contents: &Vec<u8>) -> String {
+    fn get_game_title(rom_contents: &[u8]) -> String {
         let bytes = &rom_contents[0x134..=0x143];
         let mut title = String::new();
 
@@ -81,10 +82,10 @@ impl CartridgeHeader {
             }
         }
 
-        return title;
+        title
     }
 
-    fn get_destination(rom_contents: &Vec<u8>) -> &'static str {
+    fn get_destination(rom_contents: &[u8]) -> &'static str {
         if rom_contents[0x014A] == 0 {
             "Japan"
         } else {
@@ -92,14 +93,14 @@ impl CartridgeHeader {
         }
     }
 
-    fn get_rom_size(rom_contents: &Vec<u8>) -> u32 {
+    fn get_rom_size(rom_contents: &[u8]) -> u32 {
         let known_sizes: HashMap<u8, u32> = HashMap::from([
             (0x00, 32 * 1024),           // 32 KiB, 2 banks (no banking)
             (0x01, 64 * 1024),           // 64 KiB, 4 banks
             (0x02, 128 * 1024),          // 128 KiB, 8 banks
             (0x03, 256 * 1024),          // 256 KiB, 16 banks
             (0x04, 512 * 1024),          // 512 KiB, 32 banks
-            (0x05, 1 * 1024 * 1024),     // 1 MiB, 64 banks
+            (0x05, 1024 * 1024),         // 1 MiB, 64 banks
             (0x06, 2 * 1024 * 1024),     // 2 MiB, 128 banks
             (0x07, 4 * 1024 * 1024),     // 4 MiB, 256 banks
             (0x08, 8 * 1024 * 1024),     // 8 MiB, 512 banks
@@ -111,13 +112,13 @@ impl CartridgeHeader {
         let size_byte = rom_contents[0x148];
 
         if let Some(size) = known_sizes.get(&size_byte) {
-            return *size;
+            *size
         } else {
             panic!("Unknown cartride size.");
         }
     }
 
-    fn get_ram_size(rom_contents: &Vec<u8>) -> u32 {
+    fn get_ram_size(rom_contents: &[u8]) -> u32 {
         let known_sizes: [u32; 6] = [
             0,
             0,
@@ -130,13 +131,13 @@ impl CartridgeHeader {
         let size_byte = rom_contents[0x149] as usize;
 
         if let Some(size) = known_sizes.get(size_byte) {
-            return *size;
+            *size
         } else {
             panic!("Unknown cartridge RAM size.");
         }
     }
 
-    fn get_rom_type(rom_contents: &Vec<u8>) -> &'static str {
+    fn get_rom_type(rom_contents: &[u8]) -> &'static str {
         let cartridge_types: HashMap<u8, &'static str> = HashMap::from([
             (0x00, "ROM ONLY"),
             (0x01, "MBC1"),
@@ -175,10 +176,10 @@ impl CartridgeHeader {
             eprintln!("Unknown cartridge type: 0x{:X}", cartridge_type_byte);
         }
 
-        return "";
+        ""
     }
 
-    fn get_licensee(rom_contents: &Vec<u8>) -> &'static str {
+    fn get_licensee(rom_contents: &[u8]) -> &'static str {
         let new_licensee_map: HashMap<&'static str, &'static str> = HashMap::from([
             ("00", "None"),
             ("01", "Nintendo Research & Development 1"),
@@ -408,25 +409,23 @@ impl CartridgeHeader {
                     rom_contents[0x014B]
                 );
             }
-        } else {
-            if let Ok(code) = String::from_utf8(rom_contents[0x144..=0x145].to_vec()) {
-                if let Some(name) = new_licensee_map.get(code.as_str()) {
-                    return name;
-                } else {
-                    eprintln!(
-                        "Invalid new licensee ASCII code [0x{}, 0x{}]",
-                        rom_contents[0x144], rom_contents[0x145]
-                    );
-                }
+        } else if let Ok(code) = String::from_utf8(rom_contents[0x144..=0x145].to_vec()) {
+            if let Some(name) = new_licensee_map.get(code.as_str()) {
+                return name;
             } else {
                 eprintln!(
                     "Invalid new licensee ASCII code [0x{}, 0x{}]",
                     rom_contents[0x144], rom_contents[0x145]
                 );
             }
+        } else {
+            eprintln!(
+                "Invalid new licensee ASCII code [0x{}, 0x{}]",
+                rom_contents[0x144], rom_contents[0x145]
+            );
         }
 
-        return "";
+        ""
     }
 }
 
@@ -464,11 +463,11 @@ impl Cartridge {
         );
         println!("\t ROM Vers : {}", rom_header.rom_version);
 
-        return Ok(Cartridge {
+        Ok(Cartridge {
             file: file.to_string(),
             size: rom_contents.len() as u32,
             data: rom_contents,
             header: rom_header,
-        });
+        })
     }
 }

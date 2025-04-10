@@ -17,7 +17,7 @@ fn main() {
 
     let mut dmg_emu = Emulator::new();
 
-    if let Err(e) = dmg_emu.run(&rom_file) {
+    if let Err(e) = dmg_emu.run(rom_file) {
         eprintln!("Error running emulator {e}");
         process::exit(1);
     }

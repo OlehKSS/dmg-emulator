@@ -20,6 +20,12 @@ pub struct Emulator {
     ticks: u64,
 }
 
+impl Default for Emulator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Emulator {
     pub fn delay(ms: u64) {
         let d_ms = time::Duration::from_millis(ms);
@@ -34,8 +40,8 @@ impl Emulator {
         }
     }
 
-    pub fn run(&mut self, rom_file: &String) -> Result<(), Box<dyn Error>> {
-        let rom = Cartridge::load(&rom_file)?;
+    pub fn run(&mut self, rom_file: &str) -> Result<(), Box<dyn Error>> {
+        let _rom = Cartridge::load(rom_file)?;
         let cpu = CPU::new();
 
         self.running = true;
