@@ -1,7 +1,7 @@
 use std::env;
 use std::process;
 
-use dmg01emu::emu::Emulator;
+use dmgemu::emu::Emulator;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
