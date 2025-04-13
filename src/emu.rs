@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::{thread, time};
 
+use super::bus::MemoryBus;
 use super::cart::Cartridge;
 use super::cpu::CPU;
 
@@ -42,7 +43,8 @@ impl Emulator {
 
     pub fn run(&mut self, rom_file: &str) -> Result<(), Box<dyn Error>> {
         let _rom = Cartridge::load(rom_file)?;
-        let cpu = CPU::new();
+        let mut bus = MemoryBus::new();
+        let cpu = CPU::new(&mut bus);
 
         self.running = true;
 
