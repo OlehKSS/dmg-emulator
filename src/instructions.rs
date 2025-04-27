@@ -61,6 +61,7 @@ pub enum Condition {
     C,
 }
 
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Copy, Clone, Debug)]
 #[repr(u8)]
 pub enum AddressMode {
@@ -87,7 +88,7 @@ pub enum AddressMode {
     R_A16,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 #[repr(u8)]
 pub enum InstructionType {
     NONE,
@@ -143,12 +144,12 @@ pub enum InstructionType {
 
 #[derive(Copy, Clone, Debug)]
 pub struct Instruction {
-    itype: InstructionType,
-    mode: AddressMode,
-    reg1: Option<Register>,
-    reg2: Option<Register>,
-    cond: Option<Condition>,
-    param: Option<u8>,
+    pub itype: InstructionType,
+    pub mode: AddressMode,
+    pub reg1: Option<Register>,
+    pub reg2: Option<Register>,
+    pub cond: Option<Condition>,
+    pub param: Option<u8>,
 }
 
 impl Default for Instruction {
