@@ -1,4 +1,6 @@
 use crate::bus::MemoryBus;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 use super::emu::Emulator;
 use super::instructions::Register;
@@ -33,11 +35,16 @@ pub struct CPU<'a> {
     stepping: bool,
     int_master_enabled: bool,
 
-    bus: &'a mut MemoryBus,
+    bus: RefCell<&'a mut MemoryBus>,
+    ctx: Rc<RefCell<dyn CpuContext>>,
+}
+
+pub trait CpuContext {
+    fn tick_cycle(&mut self);
 }
 
 impl<'a> CPU<'a> {
-    pub fn new(bus: &'a mut MemoryBus) -> Self {
+    pub fn new(bus: &'a mut MemoryBus, ctx: Rc<RefCell<dyn CpuContext>>) -> Self {
         // CPU { registers: Registers::default() }
         // Initial register values should be set according to DMG spec
         let mut registers = [0; 8];
@@ -55,7 +62,8 @@ impl<'a> CPU<'a> {
             halted: false,
             stepping: true,
             int_master_enabled: false,
-            bus,
+            bus: RefCell::new(bus),
+            ctx,
         }
     }
 
@@ -95,7 +103,7 @@ impl<'a> CPU<'a> {
     }
 
     fn fetch_instruction(&mut self) {
-        self.cur_opcode = self.bus.read(self.pc);
+        self.cur_opcode = self.bus.borrow().read(self.pc);
         self.pc += 1;
         self.instruction = Instruction::from_opcode(self.cur_opcode);
     }
@@ -114,15 +122,15 @@ impl<'a> CPU<'a> {
                 self.fetched_data = self.read_register(self.instruction.reg1.unwrap())
             }
             AddressMode::R_D8 => {
-                self.fetched_data = self.bus.read(self.pc) as u16;
-                Emulator::cycles(1);
+                self.fetched_data = self.bus.borrow().read(self.pc) as u16;
+                self.ctx.borrow_mut().tick_cycle();
                 self.pc += 1;
             }
             AddressMode::D16 => {
-                let lo = self.bus.read(self.pc) as u16;
-                Emulator::cycles(1);
-                let hi = self.bus.read(self.pc + 1) as u16;
-                Emulator::cycles(1);
+                let lo = self.bus.borrow().read(self.pc) as u16;
+                self.ctx.borrow_mut().tick_cycle();
+                let hi = self.bus.borrow().read(self.pc + 1) as u16;
+                self.ctx.borrow_mut().tick_cycle();
                 self.fetched_data = lo | (hi << 8); // Little or Big Endian?
             }
             _ => panic!("Unknown addressing mode {}", self.instruction.mode as u8),

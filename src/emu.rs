@@ -1,9 +1,11 @@
+use std::cell::RefCell;
 use std::error::Error;
+use std::rc::Rc;
 use std::{thread, time};
 
 use super::bus::MemoryBus;
 use super::cart::Cartridge;
-use super::cpu::CPU;
+use super::cpu::*;
 
 /// The main emulator state.
 ///
@@ -27,6 +29,12 @@ impl Default for Emulator {
     }
 }
 
+impl CpuContext for Emulator {
+    fn tick_cycle(&mut self) {
+        todo!();
+    }
+}
+
 impl Emulator {
     pub fn delay(ms: u64) {
         let d_ms = time::Duration::from_millis(ms);
@@ -41,15 +49,16 @@ impl Emulator {
         }
     }
 
-    pub fn run(&mut self, rom_file: &str) -> Result<(), Box<dyn Error>> {
+    pub fn run(rom_file: &str) -> Result<(), Box<dyn Error>> {
+        let emu = Rc::new(RefCell::new(Emulator::new()));
         let _rom = Cartridge::load(rom_file)?;
         let mut bus = MemoryBus::new();
-        let cpu = CPU::new(&mut bus);
+        let cpu = CPU::new(&mut bus, emu.clone());
 
-        self.running = true;
+        emu.borrow_mut().running = true;
 
-        while self.running {
-            if self.paused {
+        while emu.borrow().running {
+            if emu.borrow().paused {
                 Emulator::delay(10);
                 continue;
             }
@@ -59,7 +68,7 @@ impl Emulator {
                 return Ok(());
             }
 
-            self.ticks += 1;
+            emu.borrow_mut().ticks += 1;
         }
 
         Ok(())
