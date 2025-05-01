@@ -33,25 +33,9 @@
 /// - `SRA`: Performs an arithmetic right shift on a specific register by 1.
 /// - `SLA`: Performs an arithmetic left shift on a specific register by 1.
 /// - `SWAP`: Swaps the upper and lower nibbles of a specific register.
-#[derive(Copy, Clone, Debug)]
-#[repr(u8)]
-pub enum Register {
-    A = 0,
-    F = 1,
-    B = 2,
-    C = 3,
-    D = 4,
-    E = 5,
-    H = 6,
-    L = 7,
-    AF = 8,
-    BC = 9,
-    DE = 10,
-    HL = 11,
-    SP = 12,
-    PC = 13,
-}
+use super::register_file::Register;
 
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Copy, Clone, Debug)]
 #[repr(u8)]
 pub enum Condition {
@@ -88,6 +72,7 @@ pub enum AddressMode {
     R_A16,
 }
 
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[repr(u8)]
 pub enum InstructionType {
