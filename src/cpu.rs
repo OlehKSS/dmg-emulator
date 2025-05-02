@@ -7,7 +7,7 @@ use std::fmt;
 use std::rc::Rc;
 
 use instructions::*;
-use register_file::RegisterFile;
+use register_file::{Register, RegisterFile};
 
 // #[derive(Debug)]
 #[allow(dead_code)]
@@ -49,7 +49,10 @@ impl<'a> CPU<'a> {
         }
     }
 
-    pub fn step(&self) -> bool {
+    pub fn step(&mut self) -> bool {
+        self.fetch_instruction();
+        self.ctx.borrow_mut().tick_cycle();
+        self.fetch_data();
         false
     }
 
@@ -72,17 +75,134 @@ impl<'a> CPU<'a> {
             AddressMode::R => {
                 self.fetched_data = self.registers.read8(self.instruction.reg1.unwrap()) as u16
             }
+            AddressMode::R_R => {
+                self.fetched_data = self.registers.read8(self.instruction.reg2.unwrap()) as u16
+            }
             AddressMode::R_D8 => {
                 self.fetched_data = self.bus.borrow().read(self.registers.pc) as u16;
                 self.ctx.borrow_mut().tick_cycle();
                 self.registers.pc += 1;
             }
-            AddressMode::D16 => {
+            AddressMode::R_D16 | AddressMode::D16 => {
                 let lo = self.bus.borrow().read(self.registers.pc) as u16;
                 self.ctx.borrow_mut().tick_cycle();
                 let hi = self.bus.borrow().read(self.registers.pc + 1) as u16;
                 self.ctx.borrow_mut().tick_cycle();
                 self.fetched_data = lo | (hi << 8); // Little or Big Endian?
+            }
+            AddressMode::R_HLI => {
+                let reg2 = self.instruction.reg2.unwrap();
+                assert!(reg2 == Register::HL);
+                let address = self.registers.read16(reg2);
+                self.fetched_data = self.bus.borrow().read(address) as u16;
+                self.ctx.borrow_mut().tick_cycle();
+                self.registers
+                    .write16(Register::HL, address.wrapping_add(1));
+            }
+            AddressMode::R_HLD => {
+                let reg2 = self.instruction.reg2.unwrap();
+                assert!(reg2 == Register::HL);
+                let address = self.registers.read16(reg2);
+                self.fetched_data = self.bus.borrow().read(address) as u16;
+                self.ctx.borrow_mut().tick_cycle();
+                self.registers
+                    .write16(Register::HL, address.wrapping_sub(1));
+            }
+            AddressMode::HLI_R => {
+                let reg1 = self.instruction.reg1.unwrap();
+                assert!(reg1 == Register::HL);
+                let address = self.registers.read16(reg1);
+                self.mem_dest = address;
+                self.fetched_data = self.registers.read8(self.instruction.reg2.unwrap()) as u16;
+                self.dest_is_mem = true;
+                self.registers
+                    .write16(Register::HL, address.wrapping_add(1));
+            }
+            AddressMode::HLD_R => {
+                let reg1 = self.instruction.reg1.unwrap();
+                assert!(reg1 == Register::HL);
+                let address = self.registers.read16(reg1);
+                self.mem_dest = address;
+                self.fetched_data = self.registers.read8(self.instruction.reg2.unwrap()) as u16;
+                self.dest_is_mem = true;
+                self.registers
+                    .write16(Register::HL, address.wrapping_sub(1));
+            }
+            AddressMode::HL_SPR => {
+                // TODO: Is it supposed to be stack ptr?
+                self.fetched_data = self.bus.borrow().read(self.registers.pc) as u16;
+                self.ctx.borrow_mut().tick_cycle();
+                self.registers.pc += 1;
+            }
+            AddressMode::MR_R => {
+                let reg1 = self.instruction.reg1.unwrap();
+                self.fetched_data = self.registers.read8(self.instruction.reg2.unwrap()) as u16;
+                self.mem_dest = if reg1 == Register::C {
+                    (self.registers.read8(reg1) as u16) | 0xFF00
+                } else {
+                    self.registers.read16(reg1)
+                };
+
+                self.dest_is_mem = true;
+            }
+            AddressMode::R_MR => {
+                let reg2 = self.instruction.reg2.unwrap();
+                let address = if reg2 == Register::C {
+                    (self.registers.read8(reg2) as u16) | 0xFF00
+                } else {
+                    self.registers.read16(reg2)
+                };
+                // Ticks happen because of reads, could we combine it?
+                self.fetched_data = self.bus.borrow().read(address) as u16;
+                self.ctx.borrow_mut().tick_cycle();
+            }
+            AddressMode::R_A8 | AddressMode::D8 => {
+                // Stubs or final implementation?
+                self.fetched_data = self.bus.borrow().read(self.registers.pc) as u16;
+                self.ctx.borrow_mut().tick_cycle();
+                self.registers.pc += 1;
+            }
+            AddressMode::A8_R => {
+                self.dest_is_mem = true;
+                self.mem_dest = (self.bus.borrow().read(self.registers.pc) as u16) | 0xFF00;
+                self.ctx.borrow_mut().tick_cycle();
+                self.registers.pc += 1; // Should probably be wrapping add everywhere
+            }
+            AddressMode::MR => {
+                let reg1 = self.registers.read16(self.instruction.reg1.unwrap());
+                self.mem_dest = reg1;
+                self.dest_is_mem = true;
+                self.fetched_data = self.bus.borrow().read(reg1) as u16;
+                self.ctx.borrow_mut().tick_cycle();
+            }
+            AddressMode::MR_D8 => {
+                self.fetched_data = self.bus.borrow().read(self.registers.pc) as u16;
+                self.ctx.borrow_mut().tick_cycle();
+                self.registers.pc += 1;
+                self.mem_dest = self.registers.read16(self.instruction.reg1.unwrap());
+                self.dest_is_mem = true;
+            }
+            AddressMode::A16_R | AddressMode::D16_R => {
+                let lo = self.bus.borrow().read(self.registers.pc) as u16;
+                self.ctx.borrow_mut().tick_cycle();
+                let hi = self.bus.borrow().read(self.registers.pc + 1) as u16;
+                self.ctx.borrow_mut().tick_cycle();
+                self.mem_dest = lo | (hi << 8);
+                self.dest_is_mem = true;
+                self.registers.pc += 2;
+                self.fetched_data = self.registers.read8(self.instruction.reg2.unwrap()) as u16;
+            }
+            AddressMode::R_A16 => {
+                let lo = self.bus.borrow().read(self.registers.pc) as u16;
+                self.ctx.borrow_mut().tick_cycle();
+                let hi = self.bus.borrow().read(self.registers.pc + 1) as u16;
+                self.ctx.borrow_mut().tick_cycle();
+
+                let address = lo | hi << 8;
+
+                self.registers.pc += 2;
+                self.fetched_data = self.bus.borrow().read(address) as u16;
+                self.ctx.borrow_mut().tick_cycle();
             }
             _ => panic!("Unknown addressing mode {}", self.instruction.mode as u8),
         }

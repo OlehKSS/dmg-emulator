@@ -20,7 +20,7 @@ bitflags!(
     }
 );
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 #[repr(u8)]
 pub enum Register {
     A = 0,
@@ -95,6 +95,50 @@ impl RegisterFile {
             }
             Register::PC => self.pc,
             Register::SP => self.sp,
+            _ => panic!("Invalid register, only u16 supported"),
+        }
+    }
+
+    pub fn write8(&mut self, reg: Register, value: u8) {
+        match reg {
+            Register::A
+            | Register::F
+            | Register::B
+            | Register::C
+            | Register::D
+            | Register::E
+            | Register::H
+            | Register::L => self.registers[reg as usize] = value,
+            _ => panic!("Invalid register, only u8 supported"),
+        }
+    }
+
+    pub fn write16(&mut self, reg: Register, value: u16) {
+        let lo = (value & 0x00FF) as u8;
+        let hi = ((value & 0xFF00) >> 8) as u8;
+
+        match reg {
+            Register::AF => {
+                self.registers[Register::A as usize] = hi;
+                // TODO: We need to use registers as separate fields
+                // At the moment flags and Register::F are two distinct entities, not good.
+                self.registers[Register::F as usize] = lo & 0xF0; // Mask lower 4 bits;
+                Flags::from_bits_truncate(lo);
+            }
+            Register::BC => {
+                self.registers[Register::B as usize] = hi;
+                self.registers[Register::C as usize] = lo;
+            }
+            Register::DE => {
+                self.registers[Register::D as usize] = hi;
+                self.registers[Register::E as usize] = lo;
+            }
+            Register::HL => {
+                self.registers[Register::H as usize] = hi;
+                self.registers[Register::L as usize] = lo;
+            }
+            Register::PC => self.pc = value,
+            Register::SP => self.sp = value,
             _ => panic!("Invalid register, only u16 supported"),
         }
     }

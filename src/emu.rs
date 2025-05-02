@@ -53,7 +53,7 @@ impl Emulator {
         let emu = Rc::new(RefCell::new(Emulator::new()));
         let _rom = Cartridge::load(rom_file)?;
         let mut bus = MemoryBus::new();
-        let cpu = CPU::new(&mut bus, emu.clone());
+        let mut cpu = CPU::new(&mut bus, emu.clone());
 
         println!("CPU initialized\n{}", cpu);
 

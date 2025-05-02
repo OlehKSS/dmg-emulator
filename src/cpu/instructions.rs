@@ -48,6 +48,16 @@ pub enum Condition {
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Copy, Clone, Debug)]
 #[repr(u8)]
+/// R - from register 1
+/// R_R - register to register transfer
+/// R_D8 - immediate (PC) to register tranfer
+/// MR_R - register to memory (destination is 1st register)
+/// R_MR - memory to register
+/// A8_R - register to immediate 8-bit (PC)
+/// A16_R, D16_R - register to immediate 16-bit (correspond to PC, PC + 1)
+/// R_HLI, HLI_R - HLI (HL Increment), after accessing the memory address pointed to by HL, the HL register is incremented by 1.
+/// R_HLD, HLD_R - HLD (HL Decrement), after accessing the memory address pointed to by HL, the HL register is decremented by 1.
+/// Special memory (I/O)?
 pub enum AddressMode {
     IMP,
     R_D16,
