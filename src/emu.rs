@@ -55,6 +55,8 @@ impl Emulator {
         let mut bus = MemoryBus::new();
         let cpu = CPU::new(&mut bus, emu.clone());
 
+        println!("CPU initialized\n{}", cpu);
+
         emu.borrow_mut().running = true;
 
         while emu.borrow().running {

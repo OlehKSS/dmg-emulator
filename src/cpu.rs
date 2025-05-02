@@ -3,6 +3,7 @@ mod register_file;
 
 use crate::bus::MemoryBus;
 use std::cell::RefCell;
+use std::fmt;
 use std::rc::Rc;
 
 use instructions::*;
@@ -85,5 +86,11 @@ impl<'a> CPU<'a> {
             }
             _ => panic!("Unknown addressing mode {}", self.instruction.mode as u8),
         }
+    }
+}
+
+impl fmt::Display for CPU<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "CPU register file:\n{}", self.registers)
     }
 }
