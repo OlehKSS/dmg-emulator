@@ -429,6 +429,7 @@ impl CartridgeHeader {
     }
 }
 
+#[derive(Debug)]
 pub struct Cartridge {
     pub file: String,
     pub size: u32,

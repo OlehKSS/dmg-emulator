@@ -31,7 +31,11 @@ impl Default for Emulator {
 
 impl CpuContext for Emulator {
     fn tick_cycle(&mut self) {
-        todo!();
+        // 1 Memory cycle is 4 CPU cycle
+        for _ in 0..4 {
+            self.ticks += 1;
+            // TODO: add timer
+        }
     }
 }
 
@@ -51,8 +55,8 @@ impl Emulator {
 
     pub fn run(rom_file: &str) -> Result<(), Box<dyn Error>> {
         let emu = Rc::new(RefCell::new(Emulator::new()));
-        let _rom = Cartridge::load(rom_file)?;
-        let mut bus = MemoryBus::new();
+        let rom = Cartridge::load(rom_file)?;
+        let mut bus = MemoryBus::new(rom);
         let mut cpu = CPU::new(&mut bus, emu.clone());
 
         println!("CPU initialized\n{}", cpu);

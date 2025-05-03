@@ -50,16 +50,26 @@ impl<'a> CPU<'a> {
     }
 
     pub fn step(&mut self) -> bool {
-        self.fetch_instruction();
-        self.ctx.borrow_mut().tick_cycle();
-        self.fetch_data();
-        false
+        if !self.halted {
+            self.fetch_instruction();
+            self.fetch_data();
+            println!("Executing {:?}\n{}", self.instruction.itype, self.registers);
+            self.execute();
+            true
+        } else {
+            self.ctx.borrow_mut().tick_cycle();
+            // if (ctx.int_flags) {
+            //     ctx.halted = false;
+            // }
+            false
+        }
     }
 
     fn fetch_instruction(&mut self) {
         self.cur_opcode = self.bus.borrow().read(self.registers.pc);
         self.registers.pc += 1;
         self.instruction = Instruction::from_opcode(self.cur_opcode);
+        self.ctx.borrow_mut().tick_cycle();
     }
 
     fn fetch_data(&mut self) {
@@ -206,6 +216,89 @@ impl<'a> CPU<'a> {
             }
             _ => panic!("Unknown addressing mode {}", self.instruction.mode as u8),
         }
+    }
+
+    fn execute(&mut self) {
+        match self.instruction.itype {
+            InstructionType::NONE => {
+                // TODO: Should we remove it?
+                panic!("Invalid instruction NONE");
+            }
+            InstructionType::NOP => {
+                // Nothing to do
+            }
+            InstructionType::JP => {
+                self.jump();
+            }
+            InstructionType::LD => {
+                self.load();
+            }
+            InstructionType::LDH => {
+                self.load_high();
+            }
+            _ => panic!("Instruction {:?} not implemented.", self.instruction.itype),
+        }
+    }
+
+    fn check_flags(&self) -> bool {
+        if let Some(cond) = self.instruction.cond {
+            return match cond {
+                Condition::C => self.registers.cf(),
+                Condition::NC => !self.registers.cf(),
+                Condition::NZ => !self.registers.zf(),
+                Condition::Z => self.registers.zf(),
+            };
+        }
+
+        true
+    }
+
+    fn jump(&mut self) {
+        if self.check_flags() {
+            self.registers.pc = self.fetched_data;
+            self.ctx.borrow_mut().tick_cycle();
+        }
+    }
+
+    fn load(&mut self) {
+        if self.dest_is_mem {
+            let reg2 = self.instruction.reg2.unwrap();
+            if reg2.is_16bit() {
+                self.ctx.borrow_mut().tick_cycle();
+                self.bus
+                    .borrow_mut()
+                    .write16(self.mem_dest, self.fetched_data);
+            } else {
+                self.bus
+                    .borrow_mut()
+                    .write(self.mem_dest, self.fetched_data as u8);
+            }
+
+            self.ctx.borrow_mut().tick_cycle();
+            return;
+        }
+
+        if self.instruction.mode == AddressMode::HL_SPR {
+            todo!("Implement LD for AddressMode::HL_SPR");
+        }
+
+        let reg1 = self.instruction.reg1.unwrap();
+        self.registers.write8(reg1, self.fetched_data as u8);
+    }
+
+    fn load_high(&mut self) {
+        if self.dest_is_mem {
+            self.bus
+                .borrow_mut()
+                .write(self.mem_dest, self.fetched_data as u8);
+        } else {
+            assert!(self.instruction.reg1.unwrap() == Register::A);
+            let address = 0xFF00 | self.fetched_data;
+            let data = self.bus.borrow().read(address);
+            self.registers.write8(Register::A, data);
+        }
+
+        self.ctx.borrow_mut().tick_cycle();
     }
 }
 

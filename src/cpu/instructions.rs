@@ -33,6 +33,7 @@
 /// - `SRA`: Performs an arithmetic right shift on a specific register by 1.
 /// - `SLA`: Performs an arithmetic left shift on a specific register by 1.
 /// - `SWAP`: Swaps the upper and lower nibbles of a specific register.
+/// - `LDH`: Load a value to or from a specific memory address in the high RAM area (0xFF00-0xFFFF)
 use super::register_file::Register;
 
 #[allow(clippy::upper_case_acronyms)]
@@ -46,7 +47,7 @@ pub enum Condition {
 }
 
 #[allow(clippy::upper_case_acronyms)]
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 #[repr(u8)]
 /// R - from register 1
 /// R_R - register to register transfer
@@ -677,65 +678,65 @@ impl Instruction {
             },
             0x40 => Instruction {
                 itype: InstructionType::LD,
-                mode: AddressMode::IMP,
-                reg1: None,
-                reg2: None,
+                mode: AddressMode::R_R,
+                reg1: Some(Register::B),
+                reg2: Some(Register::B),
                 cond: None,
                 param: None,
             },
             0x41 => Instruction {
                 itype: InstructionType::LD,
-                mode: AddressMode::IMP,
-                reg1: None,
-                reg2: None,
+                mode: AddressMode::R_R,
+                reg1: Some(Register::B),
+                reg2: Some(Register::C),
                 cond: None,
                 param: None,
             },
             0x42 => Instruction {
                 itype: InstructionType::LD,
-                mode: AddressMode::IMP,
-                reg1: None,
-                reg2: None,
+                mode: AddressMode::R_R,
+                reg1: Some(Register::B),
+                reg2: Some(Register::D),
                 cond: None,
                 param: None,
             },
             0x43 => Instruction {
                 itype: InstructionType::LD,
-                mode: AddressMode::IMP,
-                reg1: None,
-                reg2: None,
+                mode: AddressMode::R_R,
+                reg1: Some(Register::B),
+                reg2: Some(Register::E),
                 cond: None,
                 param: None,
             },
             0x44 => Instruction {
                 itype: InstructionType::LD,
-                mode: AddressMode::IMP,
-                reg1: None,
-                reg2: None,
+                mode: AddressMode::R_R,
+                reg1: Some(Register::B),
+                reg2: Some(Register::H),
                 cond: None,
                 param: None,
             },
             0x45 => Instruction {
                 itype: InstructionType::LD,
-                mode: AddressMode::IMP,
-                reg1: None,
-                reg2: None,
+                mode: AddressMode::R_R,
+                reg1: Some(Register::B),
+                reg2: Some(Register::L),
                 cond: None,
                 param: None,
             },
             0x46 => Instruction {
                 itype: InstructionType::LD,
                 mode: AddressMode::IMP,
-                reg1: None,
-                reg2: None,
+                reg1: Some(Register::B),
+                reg2: Some(Register::HL),
                 cond: None,
                 param: None,
             },
             0x47 => Instruction {
                 itype: InstructionType::LD,
-                mode: AddressMode::IMP,
-                reg1: None,
-                reg2: None,
+                mode: AddressMode::R_R,
+                reg1: Some(Register::B),
+                reg2: Some(Register::A),
                 cond: None,
                 param: None,
             },
