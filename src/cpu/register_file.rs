@@ -46,17 +46,41 @@ pub struct RegisterFile {
     flags: Flags,
 }
 
+impl Register {
+    pub fn is_16bit(&self) -> bool {
+        match self {
+            Register::A
+            | Register::F
+            | Register::B
+            | Register::C
+            | Register::D
+            | Register::E
+            | Register::H
+            | Register::L => false,
+            Register::AF
+            | Register::BC
+            | Register::DE
+            | Register::HL
+            | Register::PC
+            | Register::SP => true,
+        }
+    }
+}
+
 impl RegisterFile {
     pub fn new() -> RegisterFile {
-        // CPU { registers: Registers::default() }
-        // Initial register values should be set according to DMG spec
         let mut registers = [0; 8];
         registers[Register::A as usize] = 0x01;
+        registers[Register::F as usize] = 0xB0;
+        registers[Register::C as usize] = 0x13;
+        registers[Register::E as usize] = 0xD8;
+        registers[Register::H as usize] = 0x01;
+        registers[Register::L as usize] = 0x4D;
 
         RegisterFile {
             registers,
             pc: 0x100,
-            sp: 0,
+            sp: 0xFFFE,
             flags: Flags::empty(),
         }
     }
