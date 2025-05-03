@@ -236,6 +236,9 @@ impl<'a> CPU<'a> {
             InstructionType::LDH => {
                 self.load_high();
             }
+            InstructionType::XOR => {
+                self.xor();
+            }
             _ => panic!("Instruction {:?} not implemented.", self.instruction.itype),
         }
     }
@@ -299,6 +302,19 @@ impl<'a> CPU<'a> {
         }
 
         self.ctx.borrow_mut().tick_cycle();
+    }
+
+    /// XOR s
+    ///
+    /// Flags: Z N H C
+    ///        * 0 0 0
+    fn xor(&mut self) {
+        let value = self.registers.read8(Register::A) ^ ((self.fetched_data & 0x00FF) as u8);
+        self.registers.write8(Register::A, value);
+        self.registers.set_zf(value == 0);
+        self.registers.set_cf(false);
+        self.registers.set_hf(false);
+        self.registers.set_nf(false);
     }
 }
 
