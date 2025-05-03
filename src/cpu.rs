@@ -52,8 +52,11 @@ impl<'a> CPU<'a> {
     pub fn step(&mut self) -> bool {
         if !self.halted {
             self.fetch_instruction();
+            println!(
+                "Executing {:?} 0x{:02X} \n{}",
+                self.instruction.itype, self.cur_opcode, self.registers
+            );
             self.fetch_data();
-            println!("Executing {:?}\n{}", self.instruction.itype, self.registers);
             self.execute();
             true
         } else {
