@@ -289,7 +289,12 @@ impl<'a> CPU<'a> {
         }
 
         let reg1 = self.instruction.reg1.unwrap();
-        self.registers.write8(reg1, self.fetched_data as u8);
+
+        if reg1.is_16bit() {
+            self.registers.write16(reg1, self.fetched_data);
+        } else {
+            self.registers.write8(reg1, self.fetched_data as u8);
+        }
     }
 
     fn load_high(&mut self) {

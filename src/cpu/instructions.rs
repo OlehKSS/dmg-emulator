@@ -422,8 +422,8 @@ impl Instruction {
             },
             0x20 => Instruction {
                 itype: InstructionType::JR,
-                mode: AddressMode::R_D16,
-                reg1: Some(Register::HL),
+                mode: AddressMode::R_A8,
+                reg1: None,
                 reg2: None,
                 cond: None,
                 param: None,
