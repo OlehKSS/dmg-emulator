@@ -245,8 +245,17 @@ impl<'a> CPU<'a> {
             InstructionType::LDH => {
                 self.load_high();
             }
+            InstructionType::ADC => {
+                self.adc();
+            }
             InstructionType::ADD => {
                 self.add();
+            }
+            InstructionType::CP => {
+                self.cp();
+            }
+            InstructionType::SBC => {
+                self.sbc();
             }
             InstructionType::SUB => {
                 self.sub();
@@ -386,17 +395,51 @@ impl<'a> CPU<'a> {
         self.ctx.borrow_mut().tick_cycle();
     }
 
-    /// AND s
+    /// ADC s
+    ///
+    /// Flags: Z N H C
+    ///        * 0 * *
+    fn adc(&mut self) {
+        assert!(self.instruction.reg1.unwrap() == Register::A);
+
+        let value = self.fetched_data as u8;
+        let cf = self.registers.cf() as u8;
+        let result = self
+            .registers
+            .read8(Register::A)
+            .wrapping_add(value)
+            .wrapping_add(cf);
+        let half_carry = ((self.registers.read8(Register::A) & 0x0F) + (value & 0x0F) + cf) > 0x0F;
+        let carry =
+            ((self.registers.read8(Register::A) as u16) + (value as u16) + (cf as u16)) > 0xFF;
+        self.registers.set_zf(result == 0);
+        self.registers.set_nf(false);
+        self.registers.set_hf(half_carry);
+        self.registers.set_cf(carry);
+        self.registers.write8(Register::A, result);
+    }
+
+    /// ADD s
     ///
     /// Flags: Z N H C
     ///        * 0 * *
     fn add(&mut self) {
-        // TODO: Implement support for ADC
         let reg1 = self.instruction.reg1.unwrap();
 
         if reg1.is_16bit() {
-            todo!("Implement 16bit addition");
+            assert!(reg1 == Register::HL);
+            let value = self.fetched_data;
+            let (result, carry) = self.registers.read16(Register::HL).overflowing_add(value);
+            let half_carry =
+                ((self.registers.read16(Register::HL) & 0x0FFF) + (value & 0x0FFF)) > 0x0FFF;
+            self.registers.set_nf(false);
+            self.registers.set_hf(half_carry);
+            self.registers.set_cf(carry);
+            self.registers.write16(Register::HL, result);
+            return;
         }
+
+        assert!(reg1 == Register::A);
 
         let value = self.fetched_data as u8;
         let (result, carry) = self.registers.read8(Register::A).overflowing_add(value);
@@ -408,10 +451,46 @@ impl<'a> CPU<'a> {
         self.registers.write8(Register::A, result);
     }
 
+    /// CP s
+    ///
+    /// Flags: Z N H C
+    ///        * 1 * *
+    fn cp(&mut self) {
+        let value = self.fetched_data as u8;
+        let result = self.registers.read8(Register::A).wrapping_sub(value);
+        let carry = self.registers.read8(Register::A) < value;
+        let half_carry = (self.registers.read8(Register::A) & 0x0F) < (value & 0x0F);
+        self.registers.set_zf(result == 0);
+        self.registers.set_nf(true);
+        self.registers.set_hf(half_carry);
+        self.registers.set_cf(carry);
+    }
+
+    /// SBC s
+    ///
+    /// Flags: Z N H C
+    ///        * 1 * *
+    fn sbc(&mut self) {
+        let value = self.fetched_data as u8;
+        let cf = self.registers.cf() as u8;
+        let result = self
+            .registers
+            .read8(Register::A)
+            .wrapping_sub(value)
+            .wrapping_sub(cf);
+        let carry = (self.registers.read8(Register::A) as u16) < (value as u16) + (cf as u16);
+        let half_carry = (self.registers.read8(Register::A) & 0x0F) < ((value & 0x0F) + cf);
+        self.registers.set_zf(result == 0);
+        self.registers.set_nf(true);
+        self.registers.set_hf(half_carry);
+        self.registers.set_cf(carry);
+        self.registers.write8(Register::A, result);
+    }
+
     /// SUB s
     ///
     /// Flags: Z N H C
-    ///        * 0 * *
+    ///        * 1 * *
     fn sub(&mut self) {
         let value = self.fetched_data as u8;
         let result = self.registers.read8(Register::A).wrapping_sub(value);
