@@ -245,6 +245,18 @@ impl<'a> CPU<'a> {
             InstructionType::LDH => {
                 self.load_high();
             }
+            InstructionType::ADD => {
+                self.add();
+            }
+            InstructionType::SUB => {
+                self.sub();
+            }
+            InstructionType::AND => {
+                self.and();
+            }
+            InstructionType::OR => {
+                self.or();
+            }
             InstructionType::XOR => {
                 self.xor();
             }
@@ -374,17 +386,81 @@ impl<'a> CPU<'a> {
         self.ctx.borrow_mut().tick_cycle();
     }
 
+    /// AND s
+    ///
+    /// Flags: Z N H C
+    ///        * 0 * *
+    fn add(&mut self) {
+        // TODO: Implement support for ADC
+        let reg1 = self.instruction.reg1.unwrap();
+
+        if reg1.is_16bit() {
+            todo!("Implement 16bit addition");
+        }
+
+        let value = self.fetched_data as u8;
+        let (result, carry) = self.registers.read8(Register::A).overflowing_add(value);
+        let half_carry = ((self.registers.read8(Register::A) & 0x0F) + (value & 0x0F)) > 0x0F;
+        self.registers.set_zf(result == 0);
+        self.registers.set_nf(false);
+        self.registers.set_hf(half_carry);
+        self.registers.set_cf(carry);
+        self.registers.write8(Register::A, result);
+    }
+
+    /// SUB s
+    ///
+    /// Flags: Z N H C
+    ///        * 0 * *
+    fn sub(&mut self) {
+        let value = self.fetched_data as u8;
+        let result = self.registers.read8(Register::A).wrapping_sub(value);
+        let carry = self.registers.read8(Register::A) < value;
+        let half_carry = (self.registers.read8(Register::A) & 0x0F) < (value & 0x0F);
+        self.registers.set_zf(result == 0);
+        self.registers.set_nf(true);
+        self.registers.set_hf(half_carry);
+        self.registers.set_cf(carry);
+        self.registers.write8(Register::A, result);
+    }
+
+    /// AND s
+    ///
+    /// Flags: Z N H C
+    ///        * 0 1 0
+    fn and(&mut self) {
+        let result = self.registers.read8(Register::A) & ((self.fetched_data & 0x00FF) as u8);
+        self.registers.write8(Register::A, result);
+        self.registers.set_zf(result == 0);
+        self.registers.set_nf(false);
+        self.registers.set_hf(true);
+        self.registers.set_cf(false);
+    }
+
+    /// OR s
+    ///
+    /// Flags: Z N H C
+    ///        * 0 0 0
+    fn or(&mut self) {
+        let result = self.registers.read8(Register::A) | ((self.fetched_data & 0x00FF) as u8);
+        self.registers.write8(Register::A, result);
+        self.registers.set_zf(result == 0);
+        self.registers.set_nf(false);
+        self.registers.set_hf(false);
+        self.registers.set_cf(false);
+    }
+
     /// XOR s
     ///
     /// Flags: Z N H C
     ///        * 0 0 0
     fn xor(&mut self) {
-        let value = self.registers.read8(Register::A) ^ ((self.fetched_data & 0x00FF) as u8);
-        self.registers.write8(Register::A, value);
-        self.registers.set_zf(value == 0);
-        self.registers.set_cf(false);
-        self.registers.set_hf(false);
+        let result = self.registers.read8(Register::A) ^ ((self.fetched_data & 0x00FF) as u8);
+        self.registers.write8(Register::A, result);
+        self.registers.set_zf(result == 0);
         self.registers.set_nf(false);
+        self.registers.set_hf(false);
+        self.registers.set_cf(false);
     }
 }
 

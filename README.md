@@ -6,4 +6,5 @@ Requirements:
 
 References:
 * [Pan Docs](https://gbdev.io/pandocs/About.html)
+* [Game Boy CPU (SM83) instruction set](https://gbdev.io/gb-opcodes//optables)
 * [awesome-gbdev](https://github.com/gbdev/awesome-gbdev)
