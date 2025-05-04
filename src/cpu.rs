@@ -245,6 +245,15 @@ impl<'a> CPU<'a> {
             InstructionType::LDH => {
                 self.load_high();
             }
+            InstructionType::CCF => {
+                self.ccf();
+            }
+            InstructionType::SCF => {
+                self.scf();
+            }
+            InstructionType::CPL => {
+                self.cpl();
+            }
             InstructionType::ADC => {
                 self.adc();
             }
@@ -393,6 +402,36 @@ impl<'a> CPU<'a> {
         }
 
         self.ctx.borrow_mut().tick_cycle();
+    }
+
+    /// CCF
+    ///
+    /// Flags: Z N H C
+    ///        - 0 0 *
+    fn ccf(&mut self) {
+        self.registers.set_nf(false);
+        self.registers.set_hf(false);
+        self.registers.set_cf(!self.registers.cf());
+    }
+
+    /// SCF
+    ///
+    /// Flags: Z N H C
+    ///        - 0 0 1
+    fn scf(&mut self) {
+        self.registers.set_nf(false);
+        self.registers.set_hf(false);
+        self.registers.set_cf(true);
+    }
+
+    /// CPL
+    ///
+    /// Flags: Z N H C
+    ///        - 1 1 -
+    fn cpl(&mut self) {
+        self.registers.a = !self.registers.a;
+        self.registers.set_nf(true);
+        self.registers.set_hf(true);
     }
 
     /// ADC s
