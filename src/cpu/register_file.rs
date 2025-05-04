@@ -40,10 +40,16 @@ pub enum Register {
 }
 
 pub struct RegisterFile {
-    registers: [u8; 8],
+    pub a: u8,
+    pub f: Flags,
+    pub b: u8,
+    pub c: u8,
+    pub d: u8,
+    pub e: u8,
+    pub h: u8,
+    pub l: u8,
     pub pc: u16,
     pub sp: u16,
-    flags: Flags,
 }
 
 impl Register {
@@ -69,54 +75,40 @@ impl Register {
 
 impl RegisterFile {
     pub fn new() -> RegisterFile {
-        let mut registers = [0; 8];
-        registers[Register::A as usize] = 0x01;
-        registers[Register::F as usize] = 0xB0;
-        registers[Register::C as usize] = 0x13;
-        registers[Register::E as usize] = 0xD8;
-        registers[Register::H as usize] = 0x01;
-        registers[Register::L as usize] = 0x4D;
-
         RegisterFile {
-            registers,
+            a: 0x01,
+            f: Flags::from_bits_truncate(0xB0),
+            b: 0,
+            c: 0x13,
+            d: 0,
+            e: 0xD8,
+            h: 0x01,
+            l: 0x4D,
             pc: 0x100,
             sp: 0xFFFE,
-            flags: Flags::empty(),
         }
     }
 
     pub fn read8(&self, reg: Register) -> u8 {
         match reg {
-            Register::A
-            | Register::F
-            | Register::B
-            | Register::C
-            | Register::D
-            | Register::E
-            | Register::H
-            | Register::L => self.registers[reg as usize],
+            Register::A => self.a,
+            Register::F => self.f.bits(),
+            Register::B => self.b,
+            Register::C => self.c,
+            Register::D => self.d,
+            Register::E => self.e,
+            Register::H => self.h,
+            Register::L => self.l,
             _ => panic!("Invalid register, only u8 supported"),
         }
     }
 
     pub fn read16(&self, reg: Register) -> u16 {
         match reg {
-            Register::AF => {
-                ((self.registers[Register::A as usize] as u16) << 8)
-                    | (self.registers[Register::F as usize] as u16)
-            }
-            Register::BC => {
-                ((self.registers[Register::B as usize] as u16) << 8)
-                    | (self.registers[Register::C as usize] as u16)
-            }
-            Register::DE => {
-                ((self.registers[Register::D as usize] as u16) << 8)
-                    | (self.registers[Register::E as usize] as u16)
-            }
-            Register::HL => {
-                ((self.registers[Register::H as usize] as u16) << 8)
-                    | (self.registers[Register::L as usize] as u16)
-            }
+            Register::AF => ((self.a as u16) << 8) | (self.f.bits() as u16),
+            Register::BC => ((self.b as u16) << 8) | (self.c as u16),
+            Register::DE => ((self.d as u16) << 8) | (self.e as u16),
+            Register::HL => ((self.h as u16) << 8) | (self.l as u16),
             Register::PC => self.pc,
             Register::SP => self.sp,
             _ => panic!("Invalid register, only u16 supported"),
@@ -125,14 +117,14 @@ impl RegisterFile {
 
     pub fn write8(&mut self, reg: Register, value: u8) {
         match reg {
-            Register::A
-            | Register::F
-            | Register::B
-            | Register::C
-            | Register::D
-            | Register::E
-            | Register::H
-            | Register::L => self.registers[reg as usize] = value,
+            Register::A => self.a = value,
+            Register::F => self.f = Flags::from_bits_truncate(value),
+            Register::B => self.b = value,
+            Register::C => self.c = value,
+            Register::D => self.d = value,
+            Register::E => self.e = value,
+            Register::H => self.h = value,
+            Register::L => self.l = value,
             _ => panic!("Invalid register, only u8 supported"),
         }
     }
@@ -143,23 +135,20 @@ impl RegisterFile {
 
         match reg {
             Register::AF => {
-                self.registers[Register::A as usize] = hi;
-                // TODO: We need to use registers as separate fields
-                // At the moment flags and Register::F are two distinct entities, not good.
-                self.registers[Register::F as usize] = lo & 0xF0; // Mask lower 4 bits;
-                Flags::from_bits_truncate(lo);
+                self.a = hi;
+                self.f = Flags::from_bits_truncate(lo);
             }
             Register::BC => {
-                self.registers[Register::B as usize] = hi;
-                self.registers[Register::C as usize] = lo;
+                self.b = hi;
+                self.c = lo;
             }
             Register::DE => {
-                self.registers[Register::D as usize] = hi;
-                self.registers[Register::E as usize] = lo;
+                self.d = hi;
+                self.e = lo;
             }
             Register::HL => {
-                self.registers[Register::H as usize] = hi;
-                self.registers[Register::L as usize] = lo;
+                self.h = hi;
+                self.l = lo;
             }
             Register::PC => self.pc = value,
             Register::SP => self.sp = value,
@@ -170,49 +159,49 @@ impl RegisterFile {
     #[inline]
     /// Get Zero flag (Z).
     pub fn zf(&self) -> bool {
-        self.flags.contains(Flags::ZERO)
+        self.f.contains(Flags::ZERO)
     }
 
     #[inline]
     /// Get Subtract flag (N).
     pub fn nf(&self) -> bool {
-        self.flags.contains(Flags::SUBTRACT)
+        self.f.contains(Flags::SUBTRACT)
     }
 
     #[inline]
     /// Get Half Carry flag (H).
     pub fn hf(&self) -> bool {
-        self.flags.contains(Flags::HALF_CARRY)
+        self.f.contains(Flags::HALF_CARRY)
     }
 
     #[inline]
     /// Get Carry flag (C).
     pub fn cf(&self) -> bool {
-        self.flags.contains(Flags::CARRY)
+        self.f.contains(Flags::CARRY)
     }
 
     #[inline]
     /// Insert the zero flag (Z) if value if true or remove when the value is false.
     pub fn set_zf(&mut self, value: bool) {
-        self.flags.set(Flags::ZERO, value);
+        self.f.set(Flags::ZERO, value);
     }
 
     #[inline]
     /// Insert the subtract flag (N) if value if true or remove when the value is false.
     pub fn set_nf(&mut self, value: bool) {
-        self.flags.set(Flags::SUBTRACT, value);
+        self.f.set(Flags::SUBTRACT, value);
     }
 
     #[inline]
     /// Insert the half carry flag (H) if value if true or remove when the value is false.
     pub fn set_hf(&mut self, value: bool) {
-        self.flags.set(Flags::HALF_CARRY, value);
+        self.f.set(Flags::HALF_CARRY, value);
     }
 
     #[inline]
     /// Insert the carry flag (C) if value if true or remove when the value is false.
     pub fn set_cf(&mut self, value: bool) {
-        self.flags.set(Flags::CARRY, value);
+        self.f.set(Flags::CARRY, value);
     }
 }
 
@@ -220,19 +209,10 @@ impl fmt::Display for RegisterFile {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "PC: {:04x} SP: {:04x} \
-            A: {:04x} F: {:04x} B: {:04x} C: {:04x} \
-            D: {:04x} E: {:04x} H: {:04x} L: {:04x}",
-            self.pc,
-            self.sp,
-            self.registers[Register::A as usize],
-            self.registers[Register::F as usize],
-            self.registers[Register::B as usize],
-            self.registers[Register::C as usize],
-            self.registers[Register::D as usize],
-            self.registers[Register::E as usize],
-            self.registers[Register::H as usize],
-            self.registers[Register::L as usize],
+            "PC: {:04X} SP: {:04X} \
+            A: {:04X} F: {:04X} B: {:04X} C: {:04X} \
+            D: {:04X} E: {:04X} H: {:04X} L: {:04X}",
+            self.pc, self.sp, self.a, self.f, self.d, self.c, self.d, self.e, self.h, self.l,
         )
     }
 }
