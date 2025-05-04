@@ -233,6 +233,9 @@ impl<'a> CPU<'a> {
             InstructionType::DEC => {
                 self.decrement();
             }
+            InstructionType::INC => {
+                self.increment();
+            }
             InstructionType::JP => {
                 self.jump();
             }
@@ -264,7 +267,7 @@ impl<'a> CPU<'a> {
 
     /// DEC s
     ///
-    /// Flags: Z N H C
+    /// Flags: Z N H C (8-bit)
     ///        * 1 * -
     fn decrement(&mut self) {
         let reg1 = self.instruction.reg1.unwrap();
@@ -276,16 +279,45 @@ impl<'a> CPU<'a> {
             return;
         }
 
-        let value = (self.fetched_data as u8).wrapping_sub(1);
-        self.registers.set_zf(value == 0);
+        let value = self.fetched_data as u8;
+        let result = value.wrapping_sub(1);
+        self.registers.set_zf(result == 0);
         self.registers.set_nf(true);
         self.registers.set_hf((value & 0x0F) == 0x00);
 
         if self.dest_is_mem {
-            self.bus.borrow_mut().write(self.mem_dest, value);
+            self.bus.borrow_mut().write(self.mem_dest, result);
             self.ctx.borrow_mut().tick_cycle();
         } else {
-            self.registers.write8(reg1, value);
+            self.registers.write8(reg1, result);
+        }
+    }
+
+    /// INC s
+    ///
+    /// Flags: Z N H C (8-bit)
+    ///        * 0 * -
+    fn increment(&mut self) {
+        let reg1 = self.instruction.reg1.unwrap();
+
+        if reg1.is_16bit() && !self.dest_is_mem {
+            // Does not change flags
+            let value = self.fetched_data.wrapping_add(1);
+            self.registers.write16(reg1, value);
+            return;
+        }
+
+        let value = self.fetched_data as u8;
+        let result = value.wrapping_add(1);
+        self.registers.set_zf(result == 0);
+        self.registers.set_nf(false);
+        self.registers.set_hf((value & 0x0F) == 0x0F);
+
+        if self.dest_is_mem {
+            self.bus.borrow_mut().write(self.mem_dest, result);
+            self.ctx.borrow_mut().tick_cycle();
+        } else {
+            self.registers.write8(reg1, result);
         }
     }
 
