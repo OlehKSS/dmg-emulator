@@ -230,6 +230,9 @@ impl<'a> CPU<'a> {
             InstructionType::NOP => {
                 // Nothing to do
             }
+            InstructionType::DEC => {
+                self.decrement();
+            }
             InstructionType::JP => {
                 self.jump();
             }
@@ -257,6 +260,33 @@ impl<'a> CPU<'a> {
         }
 
         true
+    }
+
+    /// DEC s
+    ///
+    /// Flags: Z N H C
+    ///        * 1 * -
+    fn decrement(&mut self) {
+        let reg1 = self.instruction.reg1.unwrap();
+
+        if reg1.is_16bit() && !self.dest_is_mem {
+            // Does not change flags
+            let value = self.fetched_data.wrapping_sub(1);
+            self.registers.write16(reg1, value);
+            return;
+        }
+
+        let value = (self.fetched_data as u8).wrapping_sub(1);
+        self.registers.set_zf(value == 0);
+        self.registers.set_nf(true);
+        self.registers.set_hf((value & 0x0F) == 0x00);
+
+        if self.dest_is_mem {
+            self.bus.borrow_mut().write(self.mem_dest, value);
+            self.ctx.borrow_mut().tick_cycle();
+        } else {
+            self.registers.write8(reg1, value);
+        }
     }
 
     fn jump(&mut self) {
