@@ -254,6 +254,9 @@ impl<'a> CPU<'a> {
             InstructionType::CPL => {
                 self.cpl();
             }
+            InstructionType::DAA => {
+                self.daa();
+            }
             InstructionType::ADC => {
                 self.adc();
             }
@@ -432,6 +435,45 @@ impl<'a> CPU<'a> {
         self.registers.a = !self.registers.a;
         self.registers.set_nf(true);
         self.registers.set_hf(true);
+    }
+
+    /// DAA
+    ///
+    /// Flags: Z N H C
+    ///        * - 0 *
+    ///
+    /// The DAA (Decimal Adjust Accumulator) instruction is used to ensure the value in the A register
+    /// is a valid BCD (Binary-Coded Decimal) value following a BCD addition or subtraction operation.
+    fn daa(&mut self) {
+        let mut a = self.fetched_data as u8;
+        let mut adjust = 0;
+        let mut carry = false;
+
+        if !self.registers.nf() {
+            // The previous operation was addition
+            if self.registers.hf() || (a & 0x0F) > 9 {
+                adjust |= 0x06;
+            }
+            if self.registers.cf() || a > 0x99 {
+                adjust |= 0x60;
+                carry = true;
+            }
+            a = a.wrapping_add(adjust);
+        } else {
+            // The previous operation was subtraction
+            if self.registers.hf() {
+                adjust |= 0x06;
+            }
+            if self.registers.cf() {
+                adjust |= 0x60;
+            }
+            a = a.wrapping_sub(adjust);
+        }
+
+        self.registers.a = a;
+        self.registers.set_zf(a == 0);
+        self.registers.set_hf(false);
+        self.registers.set_cf(carry);
     }
 
     /// ADC s

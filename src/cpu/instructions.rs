@@ -478,8 +478,8 @@ impl Instruction {
             },
             0x27 => Instruction {
                 itype: InstructionType::DAA,
-                mode: AddressMode::IMP,
-                reg1: None,
+                mode: AddressMode::R,
+                reg1: Some(Register::A),
                 reg2: None,
                 cond: None,
                 param: None,
