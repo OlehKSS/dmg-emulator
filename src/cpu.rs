@@ -245,6 +245,12 @@ impl<'a> CPU<'a> {
             InstructionType::LDH => {
                 self.load_high();
             }
+            InstructionType::POP => {
+                self.pop();
+            }
+            InstructionType::PUSH => {
+                self.push();
+            }
             InstructionType::CCF => {
                 self.ccf();
             }
@@ -404,6 +410,40 @@ impl<'a> CPU<'a> {
             self.registers.write8(Register::A, data);
         }
 
+        self.ctx.borrow_mut().tick_cycle();
+    }
+
+    /// POP rr
+    ///
+    /// Flags: Z N H C
+    ///        - - - -
+    /// Note! POP AF affects all flags
+    fn pop(&mut self) {
+        let lo = self.bus.borrow().read(self.registers.sp);
+        self.ctx.borrow_mut().tick_cycle();
+        self.registers.sp = self.registers.sp.wrapping_add(1);
+        let hi = self.bus.borrow().read(self.registers.sp);
+        self.ctx.borrow_mut().tick_cycle();
+        self.registers.sp = self.registers.sp.wrapping_add(1);
+        let value = ((hi as u16) << 8) | (lo as u16);
+        self.registers
+            .write16(self.instruction.reg1.unwrap(), value);
+    }
+
+    /// PUSH rr
+    ///
+    /// Flags: Z N H C
+    ///        - - - -
+    fn push(&mut self) {
+        let value: u16 = self.registers.read16(self.instruction.reg1.unwrap());
+        let hi = (value >> 8) as u8;
+        let lo = (value & 0xFF) as u8;
+        self.ctx.borrow_mut().tick_cycle();
+        self.registers.sp = self.registers.sp.wrapping_sub(1);
+        self.bus.borrow_mut().write(self.registers.sp, hi);
+        self.ctx.borrow_mut().tick_cycle();
+        self.registers.sp = self.registers.sp.wrapping_sub(1);
+        self.bus.borrow_mut().write(self.registers.sp, lo);
         self.ctx.borrow_mut().tick_cycle();
     }
 
