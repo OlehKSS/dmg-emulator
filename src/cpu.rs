@@ -1,7 +1,6 @@
 mod instructions;
 mod register_file;
 
-use crate::bus::MemoryBus;
 use std::cell::RefCell;
 use std::fmt;
 use std::rc::Rc;
@@ -11,7 +10,7 @@ use register_file::{Register, RegisterFile};
 
 // #[derive(Debug)]
 #[allow(dead_code)]
-pub struct CPU<'a> {
+pub struct CPU {
     registers: RegisterFile,
     // Current fetch
     fetched_data: u16,
@@ -24,16 +23,17 @@ pub struct CPU<'a> {
     stepping: bool,
     int_master_enabled: bool,
 
-    bus: RefCell<&'a mut MemoryBus>,
     ctx: Rc<RefCell<dyn CpuContext>>,
 }
 
 pub trait CpuContext {
     fn tick_cycle(&mut self);
+    fn read_cycle(&mut self, address: u16) -> u8;
+    fn write_cycle(&mut self, address: u16, value: u8);
 }
 
-impl<'a> CPU<'a> {
-    pub fn new(bus: &'a mut MemoryBus, ctx: Rc<RefCell<dyn CpuContext>>) -> Self {
+impl CPU {
+    pub fn new(ctx: Rc<RefCell<dyn CpuContext>>) -> Self {
         CPU {
             registers: RegisterFile::new(),
             fetched_data: 0,
@@ -44,7 +44,6 @@ impl<'a> CPU<'a> {
             halted: false,
             stepping: true,
             int_master_enabled: false,
-            bus: RefCell::new(bus),
             ctx,
         }
     }
@@ -69,10 +68,9 @@ impl<'a> CPU<'a> {
     }
 
     fn fetch_instruction(&mut self) {
-        self.cur_opcode = self.bus.borrow().read(self.registers.pc);
+        self.cur_opcode = self.ctx.borrow_mut().read_cycle(self.registers.pc);
         self.registers.pc += 1;
         self.instruction = Instruction::from_opcode(self.cur_opcode);
-        self.ctx.borrow_mut().tick_cycle();
     }
 
     fn fetch_data(&mut self) {
@@ -92,23 +90,19 @@ impl<'a> CPU<'a> {
                 self.fetched_data = self.registers.read8(self.instruction.reg2.unwrap()) as u16
             }
             AddressMode::R_D8 => {
-                self.fetched_data = self.bus.borrow().read(self.registers.pc) as u16;
-                self.ctx.borrow_mut().tick_cycle();
+                self.fetched_data = self.ctx.borrow_mut().read_cycle(self.registers.pc) as u16;
                 self.registers.pc += 1;
             }
             AddressMode::R_D16 | AddressMode::D16 => {
-                let lo = self.bus.borrow().read(self.registers.pc) as u16;
-                self.ctx.borrow_mut().tick_cycle();
-                let hi = self.bus.borrow().read(self.registers.pc + 1) as u16;
-                self.ctx.borrow_mut().tick_cycle();
+                let lo = self.ctx.borrow_mut().read_cycle(self.registers.pc) as u16;
+                let hi = self.ctx.borrow_mut().read_cycle(self.registers.pc + 1) as u16;
                 self.fetched_data = lo | (hi << 8); // Little or Big Endian?
             }
             AddressMode::R_HLI => {
                 let reg2 = self.instruction.reg2.unwrap();
                 assert!(reg2 == Register::HL);
                 let address = self.registers.read16(reg2);
-                self.fetched_data = self.bus.borrow().read(address) as u16;
-                self.ctx.borrow_mut().tick_cycle();
+                self.fetched_data = self.ctx.borrow_mut().read_cycle(address) as u16;
                 self.registers
                     .write16(Register::HL, address.wrapping_add(1));
             }
@@ -116,8 +110,7 @@ impl<'a> CPU<'a> {
                 let reg2 = self.instruction.reg2.unwrap();
                 assert!(reg2 == Register::HL);
                 let address = self.registers.read16(reg2);
-                self.fetched_data = self.bus.borrow().read(address) as u16;
-                self.ctx.borrow_mut().tick_cycle();
+                self.fetched_data = self.ctx.borrow_mut().read_cycle(address) as u16;
                 self.registers
                     .write16(Register::HL, address.wrapping_sub(1));
             }
@@ -143,8 +136,7 @@ impl<'a> CPU<'a> {
             }
             AddressMode::HL_SPR => {
                 // TODO: Is it supposed to be stack ptr?
-                self.fetched_data = self.bus.borrow().read(self.registers.pc) as u16;
-                self.ctx.borrow_mut().tick_cycle();
+                self.fetched_data = self.ctx.borrow_mut().read_cycle(self.registers.pc) as u16;
                 self.registers.pc += 1;
             }
             AddressMode::MR_R => {
@@ -165,59 +157,48 @@ impl<'a> CPU<'a> {
                 } else {
                     self.registers.read16(reg2)
                 };
-                // Ticks happen because of reads, could we combine it?
-                self.fetched_data = self.bus.borrow().read(address) as u16;
-                self.ctx.borrow_mut().tick_cycle();
+                self.fetched_data = self.ctx.borrow_mut().read_cycle(address) as u16;
             }
             AddressMode::R_A8 | AddressMode::D8 => {
                 // Stubs or final implementation?
-                self.fetched_data = self.bus.borrow().read(self.registers.pc) as u16;
-                self.ctx.borrow_mut().tick_cycle();
+                self.fetched_data = self.ctx.borrow_mut().read_cycle(self.registers.pc) as u16;
                 self.registers.pc += 1;
             }
             AddressMode::A8_R => {
                 self.dest_is_mem = true;
-                self.mem_dest = (self.bus.borrow().read(self.registers.pc) as u16) | 0xFF00;
-                self.ctx.borrow_mut().tick_cycle();
+                self.mem_dest =
+                    (self.ctx.borrow_mut().read_cycle(self.registers.pc) as u16) | 0xFF00;
                 self.registers.pc += 1; // Should probably be wrapping add everywhere
             }
             AddressMode::MR => {
                 let reg1 = self.registers.read16(self.instruction.reg1.unwrap());
                 self.mem_dest = reg1;
                 self.dest_is_mem = true;
-                self.fetched_data = self.bus.borrow().read(reg1) as u16;
-                self.ctx.borrow_mut().tick_cycle();
+                self.fetched_data = self.ctx.borrow_mut().read_cycle(reg1) as u16;
             }
             AddressMode::MR_D8 => {
-                self.fetched_data = self.bus.borrow().read(self.registers.pc) as u16;
-                self.ctx.borrow_mut().tick_cycle();
+                self.fetched_data = self.ctx.borrow_mut().read_cycle(self.registers.pc) as u16;
                 self.registers.pc += 1;
                 self.mem_dest = self.registers.read16(self.instruction.reg1.unwrap());
                 self.dest_is_mem = true;
             }
             AddressMode::A16_R | AddressMode::D16_R => {
-                let lo = self.bus.borrow().read(self.registers.pc) as u16;
-                self.ctx.borrow_mut().tick_cycle();
-                let hi = self.bus.borrow().read(self.registers.pc + 1) as u16;
-                self.ctx.borrow_mut().tick_cycle();
+                let lo = self.ctx.borrow_mut().read_cycle(self.registers.pc) as u16;
+                let hi = self.ctx.borrow_mut().read_cycle(self.registers.pc + 1) as u16;
                 self.mem_dest = lo | (hi << 8);
                 self.dest_is_mem = true;
                 self.registers.pc += 2;
                 self.fetched_data = self.registers.read8(self.instruction.reg2.unwrap()) as u16;
             }
             AddressMode::R_A16 => {
-                let lo = self.bus.borrow().read(self.registers.pc) as u16;
-                self.ctx.borrow_mut().tick_cycle();
-                let hi = self.bus.borrow().read(self.registers.pc + 1) as u16;
-                self.ctx.borrow_mut().tick_cycle();
+                let lo = self.ctx.borrow_mut().read_cycle(self.registers.pc) as u16;
+                let hi = self.ctx.borrow_mut().read_cycle(self.registers.pc + 1) as u16;
 
                 let address = lo | hi << 8;
 
                 self.registers.pc += 2;
-                self.fetched_data = self.bus.borrow().read(address) as u16;
-                self.ctx.borrow_mut().tick_cycle();
+                self.fetched_data = self.ctx.borrow_mut().read_cycle(address) as u16;
             }
-            _ => panic!("Unknown addressing mode {}", self.instruction.mode as u8),
         }
     }
 
@@ -325,8 +306,7 @@ impl<'a> CPU<'a> {
         self.registers.set_hf((value & 0x0F) == 0x00);
 
         if self.dest_is_mem {
-            self.bus.borrow_mut().write(self.mem_dest, result);
-            self.ctx.borrow_mut().tick_cycle();
+            self.ctx.borrow_mut().write_cycle(self.mem_dest, result);
         } else {
             self.registers.write8(reg1, result);
         }
@@ -353,8 +333,7 @@ impl<'a> CPU<'a> {
         self.registers.set_hf((value & 0x0F) == 0x0F);
 
         if self.dest_is_mem {
-            self.bus.borrow_mut().write(self.mem_dest, result);
-            self.ctx.borrow_mut().tick_cycle();
+            self.ctx.borrow_mut().write_cycle(self.mem_dest, result);
         } else {
             self.registers.write8(reg1, result);
         }
@@ -371,17 +350,18 @@ impl<'a> CPU<'a> {
         if self.dest_is_mem {
             let reg2 = self.instruction.reg2.unwrap();
             if reg2.is_16bit() {
-                self.ctx.borrow_mut().tick_cycle();
-                self.bus
+                self.ctx
                     .borrow_mut()
-                    .write16(self.mem_dest, self.fetched_data);
+                    .write_cycle(self.mem_dest, self.fetched_data as u8); // lo
+                self.ctx.borrow_mut().write_cycle(
+                    self.mem_dest.wrapping_add(1),
+                    (self.fetched_data >> 8) as u8,
+                ); // hi
             } else {
-                self.bus
+                self.ctx
                     .borrow_mut()
-                    .write(self.mem_dest, self.fetched_data as u8);
+                    .write_cycle(self.mem_dest, self.fetched_data as u8);
             }
-
-            self.ctx.borrow_mut().tick_cycle();
             return;
         }
 
@@ -400,17 +380,15 @@ impl<'a> CPU<'a> {
 
     fn load_high(&mut self) {
         if self.dest_is_mem {
-            self.bus
+            self.ctx
                 .borrow_mut()
-                .write(self.mem_dest, self.fetched_data as u8);
+                .write_cycle(self.mem_dest, self.fetched_data as u8);
         } else {
             assert!(self.instruction.reg1.unwrap() == Register::A);
             let address = 0xFF00 | self.fetched_data;
-            let data = self.bus.borrow().read(address);
+            let data = self.ctx.borrow_mut().read_cycle(address);
             self.registers.write8(Register::A, data);
         }
-
-        self.ctx.borrow_mut().tick_cycle();
     }
 
     /// POP rr
@@ -419,11 +397,9 @@ impl<'a> CPU<'a> {
     ///        - - - -
     /// Note! POP AF affects all flags
     fn pop(&mut self) {
-        let lo = self.bus.borrow().read(self.registers.sp);
-        self.ctx.borrow_mut().tick_cycle();
+        let lo = self.ctx.borrow_mut().read_cycle(self.registers.sp);
         self.registers.sp = self.registers.sp.wrapping_add(1);
-        let hi = self.bus.borrow().read(self.registers.sp);
-        self.ctx.borrow_mut().tick_cycle();
+        let hi = self.ctx.borrow_mut().read_cycle(self.registers.sp);
         self.registers.sp = self.registers.sp.wrapping_add(1);
         let value = ((hi as u16) << 8) | (lo as u16);
         self.registers
@@ -440,11 +416,9 @@ impl<'a> CPU<'a> {
         let lo = (value & 0xFF) as u8;
         self.ctx.borrow_mut().tick_cycle();
         self.registers.sp = self.registers.sp.wrapping_sub(1);
-        self.bus.borrow_mut().write(self.registers.sp, hi);
-        self.ctx.borrow_mut().tick_cycle();
+        self.ctx.borrow_mut().write_cycle(self.registers.sp, hi);
         self.registers.sp = self.registers.sp.wrapping_sub(1);
-        self.bus.borrow_mut().write(self.registers.sp, lo);
-        self.ctx.borrow_mut().tick_cycle();
+        self.ctx.borrow_mut().write_cycle(self.registers.sp, lo);
     }
 
     /// CCF
@@ -664,7 +638,7 @@ impl<'a> CPU<'a> {
     }
 }
 
-impl fmt::Display for CPU<'_> {
+impl fmt::Display for CPU {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "CPU register file:\n{}", self.registers)
     }

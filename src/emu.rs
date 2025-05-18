@@ -21,6 +21,7 @@ pub struct Emulator {
     paused: bool,
     running: bool,
     ticks: u64,
+    bus: MemoryBus,
 }
 
 impl Default for Emulator {
@@ -37,6 +38,16 @@ impl CpuContext for Emulator {
             // TODO: add timer
         }
     }
+
+    fn read_cycle(&mut self, address: u16) -> u8 {
+        self.tick_cycle();
+        self.bus.read(address)
+    }
+
+    fn write_cycle(&mut self, address: u16, value: u8) {
+        self.tick_cycle();
+        self.bus.write(address, value);
+    }
 }
 
 impl Emulator {
@@ -50,14 +61,15 @@ impl Emulator {
             paused: false,
             running: false,
             ticks: 0,
+            bus: MemoryBus::new(),
         }
     }
 
     pub fn run(rom_file: &str) -> Result<(), Box<dyn Error>> {
         let emu = Rc::new(RefCell::new(Emulator::new()));
         let rom = Cartridge::load(rom_file)?;
-        let mut bus = MemoryBus::new(rom);
-        let mut cpu = CPU::new(&mut bus, emu.clone());
+        emu.borrow_mut().bus.set_rom(Some(rom));
+        let mut cpu = CPU::new(emu.clone());
 
         println!("CPU initialized\n{}", cpu);
 

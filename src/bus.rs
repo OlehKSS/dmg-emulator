@@ -17,27 +17,44 @@ use super::cart::Cartridge;
 #[derive(Debug)]
 pub struct MemoryBus {
     bytes: [u8; 0xFFFF],
-    rom: Cartridge,
+    rom: Option<Cartridge>,
+}
+
+impl Default for MemoryBus {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MemoryBus {
-    pub fn new(rom: Cartridge) -> Self {
+    pub fn new() -> Self {
+        MemoryBus {
+            bytes: [0; 0xFFFF],
+            rom: None,
+        }
+    }
+
+    pub fn from_rom(rom: Option<Cartridge>) -> Self {
         MemoryBus {
             bytes: [0; 0xFFFF],
             rom,
         }
     }
 
+    pub fn set_rom(&mut self, rom: Option<Cartridge>) {
+        self.rom = rom;
+    }
+
     pub fn read(&self, address: u16) -> u8 {
         match address {
-            0..=0x7FFF => self.rom.data[address as usize],
+            0..=0x7FFF => self.rom.as_ref().unwrap().data[address as usize],
             0x8000..=0x9FFF => {
                 // TODO: Char/Map data
                 todo!(
                     "Not implemented reading Char/Map data from memory bus for address 0x{address:04X}"
                 );
             }
-            0xA000..=0xBFFF => self.rom.data[address as usize],
+            0xA000..=0xBFFF => self.rom.as_ref().unwrap().data[address as usize],
             0xC000..=0xDFFF => {
                 todo!(
                     "Not implemented reading working RAM data from memory bus for address 0x{address:04X}"
