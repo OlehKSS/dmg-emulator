@@ -69,7 +69,7 @@ impl CPU {
 
     fn fetch_instruction(&mut self) {
         self.cur_opcode = self.ctx.borrow_mut().read_cycle(self.registers.pc);
-        self.registers.pc += 1;
+        self.registers.pc = self.registers.pc.wrapping_add(1);
         self.instruction = Instruction::from_opcode(self.cur_opcode);
     }
 
@@ -91,12 +91,16 @@ impl CPU {
             }
             AddressMode::R_D8 => {
                 self.fetched_data = self.ctx.borrow_mut().read_cycle(self.registers.pc) as u16;
-                self.registers.pc += 1;
+                self.registers.pc = self.registers.pc.wrapping_add(1);
             }
             AddressMode::R_D16 | AddressMode::D16 => {
                 let lo = self.ctx.borrow_mut().read_cycle(self.registers.pc) as u16;
-                let hi = self.ctx.borrow_mut().read_cycle(self.registers.pc + 1) as u16;
-                self.fetched_data = lo | (hi << 8); // Little or Big Endian?
+                let hi = self
+                    .ctx
+                    .borrow_mut()
+                    .read_cycle(self.registers.pc.wrapping_add(1)) as u16;
+                self.fetched_data = lo | (hi << 8);
+                self.registers.pc = self.registers.pc.wrapping_add(2);
             }
             AddressMode::R_HLI => {
                 let reg2 = self.instruction.reg2.unwrap();
@@ -137,7 +141,7 @@ impl CPU {
             AddressMode::HL_SPR => {
                 // TODO: Is it supposed to be stack ptr?
                 self.fetched_data = self.ctx.borrow_mut().read_cycle(self.registers.pc) as u16;
-                self.registers.pc += 1;
+                self.registers.pc = self.registers.pc.wrapping_add(1);
             }
             AddressMode::MR_R => {
                 let reg1 = self.instruction.reg1.unwrap();
@@ -162,13 +166,13 @@ impl CPU {
             AddressMode::R_A8 | AddressMode::D8 => {
                 // Stubs or final implementation?
                 self.fetched_data = self.ctx.borrow_mut().read_cycle(self.registers.pc) as u16;
-                self.registers.pc += 1;
+                self.registers.pc = self.registers.pc.wrapping_add(1);
             }
             AddressMode::A8_R => {
                 self.dest_is_mem = true;
                 self.mem_dest =
                     (self.ctx.borrow_mut().read_cycle(self.registers.pc) as u16) | 0xFF00;
-                self.registers.pc += 1; // Should probably be wrapping add everywhere
+                self.registers.pc = self.registers.pc.wrapping_add(1); // Should probably be wrapping add everywhere
             }
             AddressMode::MR => {
                 let reg1 = self.registers.read16(self.instruction.reg1.unwrap());
@@ -178,26 +182,45 @@ impl CPU {
             }
             AddressMode::MR_D8 => {
                 self.fetched_data = self.ctx.borrow_mut().read_cycle(self.registers.pc) as u16;
-                self.registers.pc += 1;
+                self.registers.pc = self.registers.pc.wrapping_add(1);
                 self.mem_dest = self.registers.read16(self.instruction.reg1.unwrap());
                 self.dest_is_mem = true;
             }
             AddressMode::A16_R | AddressMode::D16_R => {
                 let lo = self.ctx.borrow_mut().read_cycle(self.registers.pc) as u16;
-                let hi = self.ctx.borrow_mut().read_cycle(self.registers.pc + 1) as u16;
+                let hi = self
+                    .ctx
+                    .borrow_mut()
+                    .read_cycle(self.registers.pc.wrapping_add(1)) as u16;
                 self.mem_dest = lo | (hi << 8);
                 self.dest_is_mem = true;
-                self.registers.pc += 2;
+                self.registers.pc = self.registers.pc.wrapping_add(2);
                 self.fetched_data = self.registers.read8(self.instruction.reg2.unwrap()) as u16;
             }
             AddressMode::R_A16 => {
                 let lo = self.ctx.borrow_mut().read_cycle(self.registers.pc) as u16;
-                let hi = self.ctx.borrow_mut().read_cycle(self.registers.pc + 1) as u16;
+                let hi = self
+                    .ctx
+                    .borrow_mut()
+                    .read_cycle(self.registers.pc.wrapping_add(1)) as u16;
 
                 let address = lo | hi << 8;
 
-                self.registers.pc += 2;
+                self.registers.pc = self.registers.pc.wrapping_add(2);
                 self.fetched_data = self.ctx.borrow_mut().read_cycle(address) as u16;
+            }
+            AddressMode::RST => {
+                self.fetched_data = match self.cur_opcode {
+                    0xC7 => 0x00,
+                    0xCF => 0x08,
+                    0xD7 => 0x10,
+                    0xDF => 0x18,
+                    0xE7 => 0x20,
+                    0xEF => 0x28,
+                    0xF7 => 0x30,
+                    0xFF => 0x38,
+                    _ => panic!("Invalid opcode for RST {}", self.cur_opcode),
+                };
             }
         }
     }
@@ -225,6 +248,12 @@ impl CPU {
             }
             InstructionType::LDH => {
                 self.load_high();
+            }
+            InstructionType::CALL => {
+                self.call();
+            }
+            InstructionType::RST => {
+                self.rst();
             }
             InstructionType::POP => {
                 self.pop();
@@ -391,6 +420,18 @@ impl CPU {
         }
     }
 
+    fn call(&mut self) {
+        if self.check_flags() {
+            self.push_value(self.registers.pc);
+            self.registers.pc = self.fetched_data;
+        }
+    }
+
+    fn rst(&mut self) {
+        self.push_value(self.registers.pc);
+        self.registers.pc = self.fetched_data;
+    }
+
     /// POP rr
     ///
     /// Flags: Z N H C
@@ -412,13 +453,18 @@ impl CPU {
     ///        - - - -
     fn push(&mut self) {
         let value: u16 = self.registers.read16(self.instruction.reg1.unwrap());
-        let hi = (value >> 8) as u8;
-        let lo = (value & 0xFF) as u8;
-        self.ctx.borrow_mut().tick_cycle();
+        self.push_value(value);
+    }
+
+    fn push_value(&mut self, value: u16) {
+        let msb = (value >> 8) as u8;
+        let lsb = (value & 0xFF) as u8;
+        let mut ctx = self.ctx.borrow_mut();
+        ctx.tick_cycle();
         self.registers.sp = self.registers.sp.wrapping_sub(1);
-        self.ctx.borrow_mut().write_cycle(self.registers.sp, hi);
+        ctx.write_cycle(self.registers.sp, msb);
         self.registers.sp = self.registers.sp.wrapping_sub(1);
-        self.ctx.borrow_mut().write_cycle(self.registers.sp, lo);
+        ctx.write_cycle(self.registers.sp, lsb);
     }
 
     /// CCF
