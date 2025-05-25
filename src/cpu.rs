@@ -243,6 +243,9 @@ impl CPU {
             InstructionType::JP => {
                 self.jump();
             }
+            InstructionType::JR => {
+                self.jump_rel();
+            }
             InstructionType::LD => {
                 self.load();
             }
@@ -374,6 +377,14 @@ impl CPU {
     fn jump(&mut self) {
         if self.check_flags() {
             self.registers.pc = self.fetched_data;
+            self.ctx.borrow_mut().tick_cycle();
+        }
+    }
+
+    fn jump_rel(&mut self) {
+        if self.check_flags() {
+            let e8 = self.fetched_data & 0xFF;
+            self.registers.pc = self.registers.pc.wrapping_add(e8);
             self.ctx.borrow_mut().tick_cycle();
         }
     }

@@ -333,7 +333,7 @@ impl Instruction {
             },
             0x18 => Instruction {
                 itype: InstructionType::JR,
-                mode: AddressMode::IMP,
+                mode: AddressMode::D8,
                 reg1: None,
                 reg2: None,
                 cond: None,
@@ -389,10 +389,10 @@ impl Instruction {
             },
             0x20 => Instruction {
                 itype: InstructionType::JR,
-                mode: AddressMode::R_A8,
+                mode: AddressMode::D8,
                 reg1: None,
                 reg2: None,
-                cond: None,
+                cond: Some(Condition::NZ),
             },
             0x21 => Instruction {
                 itype: InstructionType::LD,
@@ -445,10 +445,10 @@ impl Instruction {
             },
             0x28 => Instruction {
                 itype: InstructionType::JR,
-                mode: AddressMode::IMP,
+                mode: AddressMode::D8,
                 reg1: None,
                 reg2: None,
-                cond: None,
+                cond: Some(Condition::Z),
             },
             0x29 => Instruction {
                 itype: InstructionType::ADD,
@@ -501,10 +501,10 @@ impl Instruction {
             },
             0x30 => Instruction {
                 itype: InstructionType::JR,
-                mode: AddressMode::IMP,
+                mode: AddressMode::D8,
                 reg1: None,
                 reg2: None,
-                cond: None,
+                cond: Some(Condition::NC),
             },
             0x31 => Instruction {
                 itype: InstructionType::LD,
@@ -557,10 +557,10 @@ impl Instruction {
             },
             0x38 => Instruction {
                 itype: InstructionType::JR,
-                mode: AddressMode::IMP,
+                mode: AddressMode::D8,
                 reg1: None,
                 reg2: None,
-                cond: None,
+                cond: Some(Condition::C),
             },
             0x39 => Instruction {
                 itype: InstructionType::ADD,
