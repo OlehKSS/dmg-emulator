@@ -1571,7 +1571,7 @@ impl Instruction {
                 mode: AddressMode::IMP,
                 reg1: None,
                 reg2: None,
-                cond: None,
+                cond: Some(Condition::NZ),
             },
             0xC1 => Instruction {
                 itype: InstructionType::POP,
@@ -1627,7 +1627,7 @@ impl Instruction {
                 mode: AddressMode::IMP,
                 reg1: None,
                 reg2: None,
-                cond: None,
+                cond: Some(Condition::Z),
             },
             0xC9 => Instruction {
                 itype: InstructionType::RET,
@@ -1677,7 +1677,7 @@ impl Instruction {
                 mode: AddressMode::IMP,
                 reg1: None,
                 reg2: None,
-                cond: None,
+                cond: Some(Condition::NC),
             },
             0xD1 => Instruction {
                 itype: InstructionType::POP,
@@ -1727,7 +1727,7 @@ impl Instruction {
                 mode: AddressMode::IMP,
                 reg1: None,
                 reg2: None,
-                cond: None,
+                cond: Some(Condition::C),
             },
             0xD9 => Instruction {
                 itype: InstructionType::RETI,

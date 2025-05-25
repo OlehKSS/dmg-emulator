@@ -255,6 +255,9 @@ impl CPU {
             InstructionType::RST => {
                 self.rst();
             }
+            InstructionType::RET => {
+                self.ret();
+            }
             InstructionType::POP => {
                 self.pop();
             }
@@ -432,19 +435,30 @@ impl CPU {
         self.registers.pc = self.fetched_data;
     }
 
+    fn ret(&mut self) {
+        if self.check_flags() {
+            self.registers.pc = self.pop_value();
+            self.ctx.borrow_mut().tick_cycle();
+        }
+    }
+
     /// POP rr
     ///
     /// Flags: Z N H C
     ///        - - - -
     /// Note! POP AF affects all flags
     fn pop(&mut self) {
+        let value = self.pop_value();
+        self.registers
+            .write16(self.instruction.reg1.unwrap(), value);
+    }
+
+    fn pop_value(&mut self) -> u16 {
         let lo = self.ctx.borrow_mut().read_cycle(self.registers.sp);
         self.registers.sp = self.registers.sp.wrapping_add(1);
         let hi = self.ctx.borrow_mut().read_cycle(self.registers.sp);
         self.registers.sp = self.registers.sp.wrapping_add(1);
-        let value = ((hi as u16) << 8) | (lo as u16);
-        self.registers
-            .write16(self.instruction.reg1.unwrap(), value);
+        ((hi as u16) << 8) | (lo as u16)
     }
 
     /// PUSH rr
