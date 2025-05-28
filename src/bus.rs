@@ -55,10 +55,11 @@ impl MemoryBus {
                 );
             }
             0xA000..=0xBFFF => self.rom.as_ref().unwrap().data[address as usize],
-            0xC000..=0xDFFF => {
-                todo!(
-                    "Not implemented reading working RAM data from memory bus for address 0x{address:04X}"
-                );
+            0xC000..=0xCFFF => self.bytes[address as usize],
+            0xD000..=0xDFFF => {
+                // In DMG mode, 0xD000 - 0xDFFF mirrors 0xC000 - 0xCFFF (RAM Bank 0).
+                let rom0_address = address - 0x1000;
+                self.bytes[rom0_address as usize]
             }
             0xE000..=0xFDFF => {
                 // Reserved, echo RAM
