@@ -84,10 +84,22 @@ impl CPU {
         match self.instruction.mode {
             AddressMode::IMP => (),
             AddressMode::R => {
-                self.fetched_data = self.registers.read8(self.instruction.reg1.unwrap()) as u16
+                let reg = self.instruction.reg1.unwrap();
+
+                if reg.is_16bit() {
+                    self.fetched_data = self.registers.read16(reg);
+                } else {
+                    self.fetched_data = self.registers.read8(reg) as u16;
+                }
             }
             AddressMode::R_R => {
-                self.fetched_data = self.registers.read8(self.instruction.reg2.unwrap()) as u16
+                let reg = self.instruction.reg2.unwrap();
+
+                if reg.is_16bit() {
+                    self.fetched_data = self.registers.read16(reg);
+                } else {
+                    self.fetched_data = self.registers.read8(reg) as u16;
+                }
             }
             AddressMode::R_D8 => {
                 self.fetched_data = self.ctx.borrow_mut().read_cycle(self.registers.pc) as u16;
@@ -195,7 +207,14 @@ impl CPU {
                 self.mem_dest = lo | (hi << 8);
                 self.dest_is_mem = true;
                 self.registers.pc = self.registers.pc.wrapping_add(2);
-                self.fetched_data = self.registers.read8(self.instruction.reg2.unwrap()) as u16;
+
+                let reg2 = self.instruction.reg2.unwrap();
+
+                if reg2.is_16bit() {
+                    self.fetched_data = self.registers.read16(reg2);
+                } else {
+                    self.fetched_data = self.registers.read8(reg2) as u16;
+                }
             }
             AddressMode::R_A16 => {
                 let lo = self.ctx.borrow_mut().read_cycle(self.registers.pc) as u16;
@@ -302,6 +321,18 @@ impl CPU {
             }
             InstructionType::XOR => {
                 self.xor();
+            }
+            InstructionType::RLA => {
+                self.rla();
+            }
+            InstructionType::RLCA => {
+                self.rlca();
+            }
+            InstructionType::RRA => {
+                self.rra();
+            }
+            InstructionType::RRCA => {
+                self.rrca();
             }
             _ => panic!("Instruction {:?} not implemented.", self.instruction.itype),
         }
@@ -706,6 +737,58 @@ impl CPU {
         self.registers.set_nf(false);
         self.registers.set_hf(false);
         self.registers.set_cf(false);
+    }
+
+    /// RLA (Rotate Left through Carry A)
+    ///
+    /// Flags: Z N H C
+    ///        0 0 0 *
+    fn rla(&mut self) {
+        let a_msb = self.registers.a & 0x80;
+        self.registers.a = (self.registers.a << 1) | (self.registers.cf() as u8);
+        self.registers.set_zf(false);
+        self.registers.set_nf(false);
+        self.registers.set_hf(false);
+        self.registers.set_cf(a_msb != 0);
+    }
+
+    /// RLCA (Rotate Left Circular A)
+    ///
+    /// Flags: Z N H C
+    ///        0 0 0 *
+    fn rlca(&mut self) {
+        let a_msb = self.registers.a & 0x80;
+        self.registers.a = (self.registers.a << 1) | (a_msb >> 7);
+        self.registers.set_zf(false);
+        self.registers.set_nf(false);
+        self.registers.set_hf(false);
+        self.registers.set_cf(a_msb != 0);
+    }
+
+    /// RRA (Rotate Right through Carry A)
+    ///
+    /// Flags: Z N H C
+    ///        0 0 0 *
+    fn rra(&mut self) {
+        let a_lsb = self.registers.a & 1;
+        self.registers.a = (self.registers.a >> 1) | ((self.registers.cf() as u8) << 7);
+        self.registers.set_zf(false);
+        self.registers.set_nf(false);
+        self.registers.set_hf(false);
+        self.registers.set_cf(a_lsb != 0);
+    }
+
+    /// RRCA (Rotate Right Circular A)
+    ///
+    /// Flags: Z N H C
+    ///        0 0 0 *
+    fn rrca(&mut self) {
+        let a_lsb = self.registers.a & 1;
+        self.registers.a = (self.registers.a >> 1) | (a_lsb << 7);
+        self.registers.set_zf(false);
+        self.registers.set_nf(false);
+        self.registers.set_hf(false);
+        self.registers.set_cf(a_lsb != 0);
     }
 }
 
