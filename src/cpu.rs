@@ -1,4 +1,5 @@
 mod instructions;
+mod interrupt;
 mod register_file;
 
 use std::cell::RefCell;
@@ -6,6 +7,7 @@ use std::fmt;
 use std::rc::Rc;
 
 use instructions::*;
+use interrupt::{InterruptFlag, get_hadler_address};
 use register_file::{Register, RegisterFile};
 
 // #[derive(Debug)]
@@ -21,7 +23,8 @@ pub struct CPU {
 
     halted: bool,
     stepping: bool,
-    int_master_enabled: bool,
+    ime: bool,
+    ime_scheduled: bool,
 
     ctx: Rc<RefCell<dyn CpuContext>>,
 }
@@ -43,7 +46,8 @@ impl CPU {
             instruction: Instruction::default(),
             halted: false,
             stepping: true,
-            int_master_enabled: false,
+            ime: false,
+            ime_scheduled: false,
             ctx,
         }
     }
@@ -57,14 +61,31 @@ impl CPU {
             );
             self.fetch_data();
             self.execute();
-            true
+            // status = true;
         } else {
+            const INTERRUPT_ENABLE_REGISTER: u16 = 0xFFFF;
+            const INTERRUPT_FLAG_REGISTER: u16 = 0xFF0F;
+            let ier = self.ctx.borrow_mut().read_cycle(INTERRUPT_ENABLE_REGISTER);
+            let ifr = self.ctx.borrow_mut().read_cycle(INTERRUPT_FLAG_REGISTER);
+
+            if ifr & ier != 0 {
+                // Resume if an interrupt is requested
+                self.halted = false;
+            }
             self.ctx.borrow_mut().tick_cycle();
-            // if (ctx.int_flags) {
-            //     ctx.halted = false;
-            // }
-            false
+            return false;
         }
+
+        if self.ime {
+            self.handle_interrupts();
+            self.ime_scheduled = false;
+        }
+
+        if self.ime_scheduled {
+            self.ime = true;
+        }
+
+        true
     }
 
     fn fetch_instruction(&mut self) {
@@ -253,6 +274,15 @@ impl CPU {
             InstructionType::NOP => {
                 // Nothing to do
             }
+            InstructionType::HALT => {
+                self.halt();
+            }
+            InstructionType::DI => {
+                self.disable_interrupts();
+            }
+            InstructionType::EI => {
+                self.enable_interrupts();
+            }
             InstructionType::DEC => {
                 self.decrement();
             }
@@ -278,6 +308,10 @@ impl CPU {
                 self.rst();
             }
             InstructionType::RET => {
+                self.ret();
+            }
+            InstructionType::RETI => {
+                self.enable_interrupts();
                 self.ret();
             }
             InstructionType::POP => {
@@ -349,6 +383,41 @@ impl CPU {
         }
 
         true
+    }
+
+    fn halt(&mut self) {
+        self.halted = true;
+    }
+
+    fn disable_interrupts(&mut self) {
+        self.ime = false;
+    }
+
+    fn enable_interrupts(&mut self) {
+        self.ime_scheduled = true;
+    }
+
+    fn handle_interrupts(&mut self) {
+        const INTERRUPT_ENABLE_REGISTER: u16 = 0xFFFF;
+        const INTERRUPT_FLAG_REGISTER: u16 = 0xFF0F;
+        let ier = self.ctx.borrow_mut().read_cycle(INTERRUPT_ENABLE_REGISTER);
+        let ifr = self.ctx.borrow_mut().read_cycle(INTERRUPT_FLAG_REGISTER);
+        let interrupts = InterruptFlag::from_bits_truncate(ier & ifr); // Enabled and requested interrupts
+
+        if interrupts.is_empty() {
+            return;
+        }
+
+        self.ime = false;
+        // Clear the interrupt flag
+        self.ctx.borrow_mut().write_cycle(
+            INTERRUPT_FLAG_REGISTER,
+            ifr & !(interrupts.highest_priority().bits()),
+        );
+
+        self.push_value(self.registers.pc);
+        self.registers.pc = get_hadler_address(interrupts);
+        self.ctx.borrow_mut().tick_cycle(); // How many cycles?
     }
 
     /// DEC s
@@ -592,7 +661,7 @@ impl CPU {
         self.registers.set_cf(carry);
     }
 
-    /// ADC s
+    /// ADC sime_scheduled
     ///
     /// Flags: Z N H C
     ///        * 0 * *

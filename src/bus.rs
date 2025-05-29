@@ -16,7 +16,7 @@ use super::cart::Cartridge;
 // 0xFFFF: Interrupt Enabled Register
 #[derive(Debug)]
 pub struct MemoryBus {
-    bytes: [u8; 0xFFFF],
+    bytes: [u8; 0xFFFF + 1],
     rom: Option<Cartridge>,
 }
 
@@ -29,14 +29,14 @@ impl Default for MemoryBus {
 impl MemoryBus {
     pub fn new() -> Self {
         MemoryBus {
-            bytes: [0; 0xFFFF],
+            bytes: [0; 0xFFFF + 1],
             rom: None,
         }
     }
 
     pub fn from_rom(rom: Option<Cartridge>) -> Self {
         MemoryBus {
-            bytes: [0; 0xFFFF],
+            bytes: [0; 0xFFFF + 1],
             rom,
         }
     }
@@ -74,19 +74,11 @@ impl MemoryBus {
                 // Reserved, unusable
                 0
             }
-            0xFF00..=0xFF7F => {
-                todo!(
-                    "Not implemented reading I/O registers from memory bus for address 0x{address:04X}"
-                );
-            }
+            0xFF00..=0xFF7F => self.bytes[address as usize],
             0xFF80..=0xFFFE => {
                 todo!("Not implemented reading high RAM (zero page) for address 0x{address:04X}");
             }
-            0xFFFF => {
-                todo!(
-                    "Not implemented reading Interrupt Enabled Register from memory bus for address 0x{address:04X}"
-                );
-            }
+            0xFFFF => self.bytes[address as usize],
         }
     }
 
