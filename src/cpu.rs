@@ -60,6 +60,7 @@ impl CPU {
                 self.instruction.itype, self.cur_opcode, self.registers
             );
             self.fetch_data();
+            println!("Fetched data 0x{:02X}", self.fetched_data);
             self.execute();
             // status = true;
         } else {
@@ -483,8 +484,10 @@ impl CPU {
 
     fn jump_rel(&mut self) {
         if self.check_flags() {
-            let e8 = self.fetched_data & 0xFF;
-            self.registers.pc = self.registers.pc.wrapping_add(e8);
+            // Offset is a signed value
+            let e8 = self.fetched_data as i8;
+            // wrapping_add handles signed addition
+            self.registers.pc = self.registers.pc.wrapping_add(e8 as u16);
             self.ctx.borrow_mut().tick_cycle();
         }
     }

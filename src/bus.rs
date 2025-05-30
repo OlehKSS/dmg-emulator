@@ -12,7 +12,7 @@ use super::cart::Cartridge;
 // 0xFE00 - 0xFE9F : Object Attribute Memory
 // 0xFEA0 - 0xFEFF : Reserved - Unusable
 // 0xFF00 - 0xFF7F : I/O Registers
-// 0xFF80 - 0xFFFE : Zero Page
+// 0xFF80 - 0xFFFE : Zero Page or High RAM
 // 0xFFFF: Interrupt Enabled Register
 #[derive(Debug)]
 pub struct MemoryBus {
@@ -75,9 +75,7 @@ impl MemoryBus {
                 0
             }
             0xFF00..=0xFF7F => self.bytes[address as usize],
-            0xFF80..=0xFFFE => {
-                todo!("Not implemented reading high RAM (zero page) for address 0x{address:04X}");
-            }
+            0xFF80..=0xFFFE => self.bytes[address as usize],
             0xFFFF => self.bytes[address as usize],
         }
     }
