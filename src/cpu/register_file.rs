@@ -20,6 +20,7 @@ bitflags!(
     }
 );
 
+#[allow(dead_code)]
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[repr(u8)]
 pub enum Register {
@@ -210,8 +211,8 @@ impl fmt::Display for RegisterFile {
         write!(
             f,
             "PC: {:04X} SP: {:04X} \
-            A: {:04X} F: {:04X} B: {:04X} C: {:04X} \
-            D: {:04X} E: {:04X} H: {:04X} L: {:04X}",
+            A: {:02X} F: {:08b} B: {:02X} C: {:02X} \
+            D: {:02X} E: {:02X} H: {:02X} L: {:02X}",
             self.pc, self.sp, self.a, self.f, self.d, self.c, self.d, self.e, self.h, self.l,
         )
     }

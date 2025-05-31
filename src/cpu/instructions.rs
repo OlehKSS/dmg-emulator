@@ -46,7 +46,9 @@ pub enum Condition {
     C,
 }
 
+#[allow(non_camel_case_types)]
 #[allow(clippy::upper_case_acronyms)]
+#[allow(dead_code)]
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[repr(u8)]
 /// R - from register 1
@@ -85,6 +87,7 @@ pub enum AddressMode {
 }
 
 #[allow(clippy::upper_case_acronyms)]
+#[allow(dead_code)]
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[repr(u8)]
 pub enum InstructionType {

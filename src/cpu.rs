@@ -430,8 +430,8 @@ impl CPU {
 
         if reg1.is_16bit() && !self.dest_is_mem {
             // Does not change flags
-            let value = self.fetched_data.wrapping_sub(1);
-            self.registers.write16(reg1, value);
+            let result = self.fetched_data.wrapping_sub(1);
+            self.registers.write16(reg1, result);
             return;
         }
 
@@ -439,7 +439,7 @@ impl CPU {
         let result = value.wrapping_sub(1);
         self.registers.set_zf(result == 0);
         self.registers.set_nf(true);
-        self.registers.set_hf((value & 0x0F) == 0x00);
+        self.registers.set_hf((result & 0x0F) == 0x00);
 
         if self.dest_is_mem {
             self.ctx.borrow_mut().write_cycle(self.mem_dest, result);
@@ -457,8 +457,8 @@ impl CPU {
 
         if reg1.is_16bit() && !self.dest_is_mem {
             // Does not change flags
-            let value = self.fetched_data.wrapping_add(1);
-            self.registers.write16(reg1, value);
+            let result = self.fetched_data.wrapping_add(1);
+            self.registers.write16(reg1, result);
             return;
         }
 
@@ -466,7 +466,7 @@ impl CPU {
         let result = value.wrapping_add(1);
         self.registers.set_zf(result == 0);
         self.registers.set_nf(false);
-        self.registers.set_hf((value & 0x0F) == 0x0F);
+        self.registers.set_hf((value & 0x0F) + 1 > 0x0F);
 
         if self.dest_is_mem {
             self.ctx.borrow_mut().write_cycle(self.mem_dest, result);
