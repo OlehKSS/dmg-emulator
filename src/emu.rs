@@ -3,7 +3,7 @@ use std::error::Error;
 use std::rc::Rc;
 use std::{thread, time};
 
-use super::bus::MemoryBus;
+use super::bus::{HardwareRegister, MemoryBus};
 use super::cart::Cartridge;
 use super::cpu::*;
 
@@ -28,6 +28,7 @@ pub struct Emulator {
     bus: MemoryBus,
     sdl_context: Option<sdl2::Sdl>,
     canvas: Option<sdl2::render::Canvas<sdl2::video::Window>>,
+    debug_msg: String,
 }
 
 impl Default for Emulator {
@@ -70,6 +71,7 @@ impl Emulator {
             bus: MemoryBus::new(),
             sdl_context: None,
             canvas: None,
+            debug_msg: String::new(),
         }
     }
 
@@ -96,6 +98,12 @@ impl Emulator {
             if !cpu.step() {
                 println!("CPU stopped.");
                 return Ok(());
+            }
+
+            emu.borrow_mut().debug_update();
+
+            if !emu.borrow().debug_msg.is_empty() {
+                println!("Debug message: {}", emu.borrow().debug_msg);
             }
 
             // Limit frame rate to 60Hz
@@ -146,6 +154,16 @@ impl Emulator {
                 } => self.running = false,
                 _ => {}
             }
+        }
+    }
+
+    fn debug_update(&mut self) {
+        let serial_transfer_requested = self.bus.read_register(HardwareRegister::SC) == 0x81;
+
+        if serial_transfer_requested {
+            let c = self.bus.read_register(HardwareRegister::SB);
+            self.debug_msg.push(c as char);
+            self.bus.write_register(HardwareRegister::SC, 0);
         }
     }
 }

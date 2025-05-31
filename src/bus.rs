@@ -20,6 +20,17 @@ pub struct MemoryBus {
     rom: Option<Cartridge>,
 }
 
+/// P1/JOYP Joypad
+/// SB Serial transfer data
+/// SC Serial transfer control
+#[allow(non_camel_case_types)]
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum HardwareRegister {
+    P1_JOYP = 0xFF00,
+    SB = 0xFF01,
+    SC = 0xFF02,
+}
+
 impl Default for MemoryBus {
     fn default() -> Self {
         Self::new()
@@ -86,6 +97,11 @@ impl MemoryBus {
         lo | (hi << 8)
     }
 
+    pub fn read_register(&self, register: HardwareRegister) -> u8 {
+        let address = register as u16;
+        self.read(address)
+    }
+
     pub fn write(&mut self, address: u16, value: u8) {
         self.bytes[address as usize] = value;
     }
@@ -95,5 +111,10 @@ impl MemoryBus {
         let hi = ((value >> 8) & 0x00FF) as u8;
         self.bytes[address as usize] = lo;
         self.bytes[(address + 1) as usize] = hi;
+    }
+
+    pub fn write_register(&mut self, register: HardwareRegister, value: u8) {
+        let address = register as u16;
+        self.write(address, value);
     }
 }
