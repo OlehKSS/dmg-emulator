@@ -8,12 +8,42 @@ bitflags!(
         const SERIAL = 0b1000;
         const JOYPAD = 0b1_0000;
     }
-
 );
 
 impl InterruptFlag {
     pub fn highest_priority(&self) -> InterruptFlag {
         InterruptFlag::from_bits_truncate(isolate_rightmost_one(self.bits()))
+    }
+}
+
+pub trait InterruptRequest {
+    fn request_interrupt(&mut self, f: InterruptFlag);
+}
+
+pub struct InterruptLine {
+    // Equivalent to hardware registers IE, IF
+    pub interrupt_enable: InterruptFlag,
+    pub interrupt_flag: InterruptFlag,
+}
+
+impl InterruptLine {
+    pub fn new() -> Self {
+        InterruptLine {
+            interrupt_enable: InterruptFlag::empty(),
+            interrupt_flag: InterruptFlag::empty(),
+        }
+    }
+}
+
+impl Default for InterruptLine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl InterruptRequest for InterruptLine {
+    fn request_interrupt(&mut self, f: InterruptFlag) {
+        self.interrupt_enable |= f;
     }
 }
 

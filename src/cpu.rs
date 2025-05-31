@@ -1,13 +1,12 @@
 mod instructions;
-mod interrupt;
 mod register_file;
 
 use std::cell::RefCell;
 use std::fmt;
 use std::rc::Rc;
 
+use super::interrupts::{InterruptFlag, get_hadler_address};
 use instructions::*;
-use interrupt::{InterruptFlag, get_hadler_address};
 use register_file::{Register, RegisterFile};
 
 // #[derive(Debug)]
@@ -33,6 +32,8 @@ pub trait CpuContext {
     fn tick_cycle(&mut self);
     fn read_cycle(&mut self, address: u16) -> u8;
     fn write_cycle(&mut self, address: u16, value: u8);
+    fn get_interrupt(&mut self) -> Option<InterruptFlag>;
+    fn ack_interrupt(&mut self, f: &InterruptFlag);
 }
 
 impl CPU {
@@ -64,12 +65,7 @@ impl CPU {
             self.execute();
             // status = true;
         } else {
-            const INTERRUPT_ENABLE_REGISTER: u16 = 0xFFFF;
-            const INTERRUPT_FLAG_REGISTER: u16 = 0xFF0F;
-            let ier = self.ctx.borrow_mut().read_cycle(INTERRUPT_ENABLE_REGISTER);
-            let ifr = self.ctx.borrow_mut().read_cycle(INTERRUPT_FLAG_REGISTER);
-
-            if ifr & ier != 0 {
+            if self.ctx.borrow_mut().get_interrupt().is_some() {
                 // Resume if an interrupt is requested
                 self.halted = false;
             }
@@ -399,25 +395,22 @@ impl CPU {
     }
 
     fn handle_interrupts(&mut self) {
-        const INTERRUPT_ENABLE_REGISTER: u16 = 0xFFFF;
-        const INTERRUPT_FLAG_REGISTER: u16 = 0xFF0F;
-        let ier = self.ctx.borrow_mut().read_cycle(INTERRUPT_ENABLE_REGISTER);
-        let ifr = self.ctx.borrow_mut().read_cycle(INTERRUPT_FLAG_REGISTER);
-        let interrupts = InterruptFlag::from_bits_truncate(ier & ifr); // Enabled and requested interrupts
+        let interrupt = match self.ctx.borrow_mut().get_interrupt() {
+            Some(i) => i,
+            None => InterruptFlag::empty(),
+        };
 
-        if interrupts.is_empty() {
+        if interrupt.is_empty() {
             return;
         }
 
+        let interrupt = interrupt.highest_priority();
+
         self.ime = false;
-        // Clear the interrupt flag
-        self.ctx.borrow_mut().write_cycle(
-            INTERRUPT_FLAG_REGISTER,
-            ifr & !(interrupts.highest_priority().bits()),
-        );
+        self.ctx.borrow_mut().ack_interrupt(&interrupt);
 
         self.push_value(self.registers.pc);
-        self.registers.pc = get_hadler_address(interrupts);
+        self.registers.pc = get_hadler_address(interrupt);
         self.ctx.borrow_mut().tick_cycle(); // How many cycles?
     }
 

@@ -23,12 +23,41 @@ pub struct MemoryBus {
 /// P1/JOYP Joypad
 /// SB Serial transfer data
 /// SC Serial transfer control
+/// DIV Divider register
+/// TIMA Timer counter
+/// TMA Timer modulo
+/// TAC Timer control
+/// IF Interrupt flag
+/// IE Interrupt enable
 #[allow(non_camel_case_types)]
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum HardwareRegister {
     P1_JOYP = 0xFF00,
     SB = 0xFF01,
     SC = 0xFF02,
+    DIV = 0xFF04,
+    TIMA = 0xFF05,
+    TMA = 0xFF06,
+    TAC = 0xFF07,
+    IF = 0xFF0F,
+    IE = 0xFFFF,
+}
+
+impl HardwareRegister {
+    pub fn from_u16(address: u16) -> Option<HardwareRegister> {
+        match address {
+            x if x == HardwareRegister::P1_JOYP as u16 => Some(HardwareRegister::P1_JOYP),
+            x if x == HardwareRegister::SB as u16 => Some(HardwareRegister::SB),
+            x if x == HardwareRegister::SC as u16 => Some(HardwareRegister::SC),
+            x if x == HardwareRegister::DIV as u16 => Some(HardwareRegister::DIV),
+            x if x == HardwareRegister::TIMA as u16 => Some(HardwareRegister::TIMA),
+            x if x == HardwareRegister::TMA as u16 => Some(HardwareRegister::TMA),
+            x if x == HardwareRegister::TAC as u16 => Some(HardwareRegister::TAC),
+            x if x == HardwareRegister::IF as u16 => Some(HardwareRegister::IF),
+            x if x == HardwareRegister::IE as u16 => Some(HardwareRegister::IE),
+            _ => None,
+        }
+    }
 }
 
 impl Default for MemoryBus {

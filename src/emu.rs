@@ -3,9 +3,13 @@ use std::error::Error;
 use std::rc::Rc;
 use std::{thread, time};
 
+use crate::interrupts::InterruptFlag;
+
 use super::bus::{HardwareRegister, MemoryBus};
 use super::cart::Cartridge;
 use super::cpu::*;
+use super::interrupts::InterruptLine;
+use super::timer::Timer;
 
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
@@ -26,6 +30,8 @@ pub struct Emulator {
     running: bool,
     ticks: u64,
     bus: MemoryBus,
+    interrupts: InterruptLine,
+    timer: Timer,
     sdl_context: Option<sdl2::Sdl>,
     canvas: Option<sdl2::render::Canvas<sdl2::video::Window>>,
     debug_msg: String,
@@ -42,18 +48,72 @@ impl CpuContext for Emulator {
         // 1 Memory cycle is 4 CPU cycle
         for _ in 0..4 {
             self.ticks += 1;
-            // TODO: add timer
+            self.timer.tick(&mut self.interrupts);
         }
     }
 
     fn read_cycle(&mut self, address: u16) -> u8 {
         self.tick_cycle();
-        self.bus.read(address)
+
+        match HardwareRegister::from_u16(address) {
+            Some(HardwareRegister::DIV)
+            | Some(HardwareRegister::TIMA)
+            | Some(HardwareRegister::TMA)
+            | Some(HardwareRegister::TAC) => self.timer.read(address),
+            Some(HardwareRegister::IF) => self.interrupts.interrupt_flag.bits(),
+            Some(HardwareRegister::IE) => self.interrupts.interrupt_enable.bits(),
+            _ => self.bus.read(address),
+        }
     }
 
     fn write_cycle(&mut self, address: u16, value: u8) {
         self.tick_cycle();
+        // Write everything to bus just in case
         self.bus.write(address, value);
+
+        match HardwareRegister::from_u16(address) {
+            Some(HardwareRegister::DIV)
+            | Some(HardwareRegister::TIMA)
+            | Some(HardwareRegister::TMA)
+            | Some(HardwareRegister::TAC) => {
+                self.timer.write(address, value);
+            }
+            Some(HardwareRegister::IF) => {
+                self.interrupts.interrupt_flag = InterruptFlag::from_bits_truncate(value);
+            }
+            Some(HardwareRegister::IE) => {
+                self.interrupts.interrupt_enable = InterruptFlag::from_bits_truncate(value);
+            }
+            _ => (),
+        };
+    }
+
+    fn get_interrupt(&mut self) -> Option<InterruptFlag> {
+        // TODO: How the bus should update these values?
+        let ier = self.interrupts.interrupt_enable.bits();
+        let ifr = self.interrupts.interrupt_flag.bits();
+
+        let bus_ier = self.bus.read_register(HardwareRegister::IE);
+        let bus_ifr = self.bus.read_register(HardwareRegister::IF);
+
+        if bus_ier != ier || bus_ifr != ifr {
+            panic!("Interrupt registers are not synchronized.");
+        }
+
+        if (ier & ifr) != 0 {
+            return Some(InterruptFlag::from_bits_truncate(ier & ifr));
+        }
+
+        None
+    }
+
+    /// Clear the interrupt flag
+    fn ack_interrupt(&mut self, f: &InterruptFlag) {
+        let ifr = self.interrupts.interrupt_flag.bits();
+        let new_ifr = ifr & !(f.highest_priority().bits());
+        self.interrupts.interrupt_flag = InterruptFlag::from_bits_truncate(new_ifr);
+        // TODO: How the bus should update these values?
+        self.bus.write_register(HardwareRegister::IF, new_ifr);
     }
 }
 
@@ -69,6 +129,8 @@ impl Emulator {
             running: false,
             ticks: 0,
             bus: MemoryBus::new(),
+            interrupts: InterruptLine::new(),
+            timer: Timer::new(),
             sdl_context: None,
             canvas: None,
             debug_msg: String::new(),
