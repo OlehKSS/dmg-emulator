@@ -88,12 +88,7 @@ impl MemoryBus {
     pub fn read(&self, address: u16) -> u8 {
         match address {
             0..=0x7FFF => self.rom.as_ref().unwrap().data[address as usize],
-            0x8000..=0x9FFF => {
-                // TODO: Char/Map data
-                todo!(
-                    "Not implemented reading Char/Map data from memory bus for address 0x{address:04X}"
-                );
-            }
+            0x8000..=0x9FFF => self.bytes[address as usize],
             0xA000..=0xBFFF => self.rom.as_ref().unwrap().data[address as usize],
             0xC000..=0xCFFF => self.bytes[address as usize],
             0xD000..=0xDFFF => {
@@ -105,11 +100,7 @@ impl MemoryBus {
                 // Reserved, echo RAM
                 0
             }
-            0xFE00..=0xFE9F => {
-                todo!(
-                    "Not implemented reading Object Attribute Memory from memory bus for address 0x{address:04X}"
-                )
-            }
+            0xFE00..=0xFE9F => self.bytes[address as usize],
             0xFEA0..=0xFEFF => {
                 // Reserved, unusable
                 0

@@ -9,11 +9,13 @@ use super::bus::{HardwareRegister, MemoryBus};
 use super::cart::Cartridge;
 use super::cpu::*;
 use super::interrupts::InterruptLine;
+use super::ppu::PPU;
 use super::timer::Timer;
 
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
+use sdl2::rect::Rect;
 
 /// The main emulator state.
 ///
@@ -31,9 +33,11 @@ pub struct Emulator {
     ticks: u64,
     bus: MemoryBus,
     interrupts: InterruptLine,
+    ppu: PPU,
     timer: Timer,
     sdl_context: Option<sdl2::Sdl>,
     canvas: Option<sdl2::render::Canvas<sdl2::video::Window>>,
+    debug_canvas: Option<sdl2::render::Canvas<sdl2::video::Window>>,
     debug_msg: String,
 }
 
@@ -55,13 +59,18 @@ impl CpuContext for Emulator {
     fn read_cycle(&mut self, address: u16) -> u8 {
         self.tick_cycle();
 
-        match HardwareRegister::from_u16(address) {
-            Some(HardwareRegister::DIV)
-            | Some(HardwareRegister::TIMA)
-            | Some(HardwareRegister::TMA)
-            | Some(HardwareRegister::TAC) => self.timer.read(address),
-            Some(HardwareRegister::IF) => self.interrupts.interrupt_flag.bits(),
-            Some(HardwareRegister::IE) => self.interrupts.interrupt_enable.bits(),
+        match address {
+            0x8000..=0x9FFF => self.ppu.vram_read(address),
+            0xFE00..=0xFE9F => self.ppu.oam_read(address),
+            0xFF00..=0xFF7F | 0xFFFF => match HardwareRegister::from_u16(address) {
+                Some(HardwareRegister::DIV)
+                | Some(HardwareRegister::TIMA)
+                | Some(HardwareRegister::TMA)
+                | Some(HardwareRegister::TAC) => self.timer.read(address),
+                Some(HardwareRegister::IF) => self.interrupts.interrupt_flag.bits(),
+                Some(HardwareRegister::IE) => self.interrupts.interrupt_enable.bits(),
+                _ => panic!("Unimplemented hardware register read."),
+            },
             _ => self.bus.read(address),
         }
     }
@@ -71,21 +80,28 @@ impl CpuContext for Emulator {
         // Write everything to bus just in case
         self.bus.write(address, value);
 
-        match HardwareRegister::from_u16(address) {
-            Some(HardwareRegister::DIV)
-            | Some(HardwareRegister::TIMA)
-            | Some(HardwareRegister::TMA)
-            | Some(HardwareRegister::TAC) => {
-                self.timer.write(address, value);
-            }
-            Some(HardwareRegister::IF) => {
-                self.interrupts.interrupt_flag = InterruptFlag::from_bits_truncate(value);
-            }
-            Some(HardwareRegister::IE) => {
-                self.interrupts.interrupt_enable = InterruptFlag::from_bits_truncate(value);
+        match address {
+            0x8000..=0x9FFF => self.ppu.vram_write(address, value),
+            0xFE00..=0xFE9F => self.ppu.oam_write(address, value),
+            0xFF00..=0xFF7F | 0xFFFF => {
+                match HardwareRegister::from_u16(address) {
+                    Some(HardwareRegister::DIV)
+                    | Some(HardwareRegister::TIMA)
+                    | Some(HardwareRegister::TMA)
+                    | Some(HardwareRegister::TAC) => {
+                        self.timer.write(address, value);
+                    }
+                    Some(HardwareRegister::IF) => {
+                        self.interrupts.interrupt_flag = InterruptFlag::from_bits_truncate(value);
+                    }
+                    Some(HardwareRegister::IE) => {
+                        self.interrupts.interrupt_enable = InterruptFlag::from_bits_truncate(value);
+                    }
+                    _ => panic!("Unimplemented hardware register write."),
+                };
             }
             _ => (),
-        };
+        }
     }
 
     fn get_interrupt(&mut self) -> Option<InterruptFlag> {
@@ -118,6 +134,12 @@ impl CpuContext for Emulator {
 }
 
 impl Emulator {
+    const SCREEN_WIDTH: u32 = 20;
+    const SCREEN_HEIGHT: u32 = 18;
+    const DEBUG_SCREEN_WIDTH: u32 = 16;
+    const DEBUG_SCREEN_HEIGHT: u32 = 24;
+    const SCALE: u32 = 5;
+
     pub fn delay(ms: u64) {
         let d_ms = time::Duration::from_millis(ms);
         thread::sleep(d_ms);
@@ -130,9 +152,11 @@ impl Emulator {
             ticks: 0,
             bus: MemoryBus::new(),
             interrupts: InterruptLine::new(),
+            ppu: PPU::new(),
             timer: Timer::new(),
             sdl_context: None,
             canvas: None,
+            debug_canvas: None,
             debug_msg: String::new(),
         }
     }
@@ -168,6 +192,8 @@ impl Emulator {
                 println!("Debug message: {}", emu.borrow().debug_msg);
             }
 
+            emu.borrow_mut().update_debug_window();
+
             // Limit frame rate to 60Hz
             Emulator::delay(16);
             emu.borrow_mut().ticks += 1;
@@ -177,10 +203,6 @@ impl Emulator {
     }
 
     fn ui_init(&mut self) {
-        const SCREEN_WIDTH: u32 = 20;
-        const SCREEN_HEIGHT: u32 = 18;
-        const SCALE: u32 = 5;
-
         if self.sdl_context.is_none() {
             self.sdl_context = Some(sdl2::init().unwrap());
         }
@@ -189,12 +211,14 @@ impl Emulator {
         let window = video_subsystem
             .window(
                 "GameBoy Emulator",
-                SCREEN_WIDTH * 8 * SCALE,
-                SCREEN_HEIGHT * 8 * SCALE,
+                Self::SCREEN_WIDTH * 8 * Self::SCALE,
+                Self::SCREEN_HEIGHT * 8 * Self::SCALE,
             )
             .position_centered()
             .build()
             .unwrap();
+
+        let (posx, posy) = window.position();
 
         let mut canvas = window.into_canvas().build().unwrap();
         canvas.set_draw_color(Color::RGB(0, 0, 0));
@@ -202,6 +226,27 @@ impl Emulator {
         canvas.present();
 
         self.canvas = Some(canvas);
+
+        let debug_window = video_subsystem
+            .window(
+                "Debug Info",
+                Self::DEBUG_SCREEN_WIDTH * 8 * Self::SCALE + Self::DEBUG_SCREEN_WIDTH * Self::SCALE,
+                Self::DEBUG_SCREEN_HEIGHT * 8 * Self::SCALE
+                    + Self::DEBUG_SCREEN_HEIGHT * Self::SCALE,
+            )
+            .position(
+                posx + (((Self::SCREEN_WIDTH + 1) * 8 * Self::SCALE) as i32),
+                posy,
+            )
+            .build()
+            .unwrap();
+
+        let mut debug_canvas = debug_window.into_canvas().build().unwrap();
+        debug_canvas.set_draw_color(Color::RGB(100, 0, 0));
+        debug_canvas.clear();
+        debug_canvas.present();
+
+        self.debug_canvas = Some(debug_canvas);
     }
 
     fn ui_handle_events(&mut self) {
@@ -226,6 +271,62 @@ impl Emulator {
             let c = self.bus.read_register(HardwareRegister::SB);
             self.debug_msg.push(c as char);
             self.bus.write_register(HardwareRegister::SC, 0);
+        }
+    }
+
+    fn update_debug_window(&mut self) {
+        let mut x_draw = 0i32;
+        let mut y_draw = 0i32;
+        let mut tile_num = 0u16;
+        let scale = Self::SCALE as i32;
+
+        for y in 0..Self::DEBUG_SCREEN_HEIGHT {
+            for x in 0..Self::DEBUG_SCREEN_WIDTH {
+                let x_tile = x_draw + ((x as i32) * scale);
+                let y_tile = y_draw + ((y as i32) * scale);
+                self.display_tile(tile_num, x_tile, y_tile);
+                x_draw += 8 * scale;
+                tile_num += 1;
+            }
+            y_draw += 8 * scale;
+            x_draw = 0;
+        }
+
+        self.debug_canvas.as_mut().unwrap().present();
+    }
+
+    fn display_tile(&mut self, tile_num: u16, x: i32, y: i32) {
+        const GREEN_LIGHT: Color = Color::RGB(144, 238, 144);
+        const GREEN_MEDIUM: Color = Color::RGB(0, 128, 0);
+        const GREEN_DARK: Color = Color::RGB(0, 100, 0);
+        const GREEN_FOREST: Color = Color::RGB(34, 139, 34);
+
+        let colors = [GREEN_LIGHT, GREEN_MEDIUM, GREEN_DARK, GREEN_FOREST];
+
+        const START_ADDRESS: u16 = 0x8000;
+        let scale = Self::SCALE as i32;
+
+        for tile_byte in (0..16u16).step_by(2) {
+            let b1 = self
+                .ppu
+                .vram_read(START_ADDRESS + tile_num * 16 + tile_byte);
+            let b2 = self
+                .ppu
+                .vram_read(START_ADDRESS + tile_num * 16 + tile_byte + 1);
+
+            for bit in (0..=7u16).rev() {
+                let hi = (b1 & (1 << bit)) << 1;
+                let lo = b2 & (1 << bit);
+                let color_index = (hi | lo) as usize;
+                let color = colors[color_index];
+
+                let x_rc = x + (((7 - bit) as i32) * scale);
+                let y_rc = y + (tile_byte as i32) / 2 * scale;
+                let rc = Rect::new(x_rc, y_rc, Self::SCALE, Self::SCALE);
+
+                self.debug_canvas.as_mut().unwrap().set_draw_color(color);
+                self.debug_canvas.as_mut().unwrap().fill_rect(rc).unwrap();
+            }
         }
     }
 }
