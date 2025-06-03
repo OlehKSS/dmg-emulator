@@ -28,7 +28,9 @@ pub struct MemoryBus {
 /// TMA Timer modulo
 /// TAC Timer control
 /// IF Interrupt flag
+/// DMA OAM DMA source address & start
 /// IE Interrupt enable
+/// LY LCD Y coordinate
 #[allow(non_camel_case_types)]
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum HardwareRegister {
@@ -40,6 +42,8 @@ pub enum HardwareRegister {
     TMA = 0xFF06,
     TAC = 0xFF07,
     IF = 0xFF0F,
+    LY = 0xFF44,
+    DMA = 0xFF46,
     IE = 0xFFFF,
 }
 

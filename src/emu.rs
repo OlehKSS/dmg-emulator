@@ -8,6 +8,7 @@ use crate::interrupts::InterruptFlag;
 use super::bus::{HardwareRegister, MemoryBus};
 use super::cart::Cartridge;
 use super::cpu::*;
+use super::dma::DMA;
 use super::interrupts::InterruptLine;
 use super::ppu::PPU;
 use super::timer::Timer;
@@ -33,6 +34,7 @@ pub struct Emulator {
     ticks: u64,
     bus: MemoryBus,
     interrupts: InterruptLine,
+    dma: DMA,
     ppu: PPU,
     timer: Timer,
     sdl_context: Option<sdl2::Sdl>,
@@ -54,6 +56,8 @@ impl CpuContext for Emulator {
             self.ticks += 1;
             self.timer.tick(&mut self.interrupts);
         }
+
+        self.dma.tick_cycle(&self.bus, &mut self.ppu);
     }
 
     fn read_cycle(&mut self, address: u16) -> u8 {
@@ -61,13 +65,19 @@ impl CpuContext for Emulator {
 
         match address {
             0x8000..=0x9FFF => self.ppu.vram_read(address),
-            0xFE00..=0xFE9F => self.ppu.oam_read(address),
+            0xFE00..=0xFE9F => {
+                if self.dma.is_active() {
+                    return 0xFF;
+                }
+                self.ppu.oam_read(address)
+            }
             0xFF00..=0xFF7F | 0xFFFF => match HardwareRegister::from_u16(address) {
                 Some(HardwareRegister::DIV)
                 | Some(HardwareRegister::TIMA)
                 | Some(HardwareRegister::TMA)
                 | Some(HardwareRegister::TAC) => self.timer.read(address),
                 Some(HardwareRegister::IF) => self.interrupts.interrupt_flag.bits(),
+                Some(HardwareRegister::LY) => 0x94,
                 Some(HardwareRegister::IE) => self.interrupts.interrupt_enable.bits(),
                 _ => panic!("Unimplemented hardware register read."),
             },
@@ -82,7 +92,12 @@ impl CpuContext for Emulator {
 
         match address {
             0x8000..=0x9FFF => self.ppu.vram_write(address, value),
-            0xFE00..=0xFE9F => self.ppu.oam_write(address, value),
+            0xFE00..=0xFE9F => {
+                if self.dma.is_active() {
+                    return;
+                }
+                self.ppu.oam_write(address, value);
+            }
             0xFF00..=0xFF7F | 0xFFFF => {
                 match HardwareRegister::from_u16(address) {
                     Some(HardwareRegister::DIV)
@@ -94,6 +109,7 @@ impl CpuContext for Emulator {
                     Some(HardwareRegister::IF) => {
                         self.interrupts.interrupt_flag = InterruptFlag::from_bits_truncate(value);
                     }
+                    Some(HardwareRegister::DMA) => self.dma.start(value),
                     Some(HardwareRegister::IE) => {
                         self.interrupts.interrupt_enable = InterruptFlag::from_bits_truncate(value);
                     }
@@ -152,6 +168,7 @@ impl Emulator {
             ticks: 0,
             bus: MemoryBus::new(),
             interrupts: InterruptLine::new(),
+            dma: DMA::new(),
             ppu: PPU::new(),
             timer: Timer::new(),
             sdl_context: None,
