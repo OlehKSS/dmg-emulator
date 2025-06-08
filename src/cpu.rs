@@ -99,7 +99,15 @@ impl CPU {
     fn fetch_instruction(&mut self) {
         self.cur_opcode = self.ctx.borrow_mut().read_cycle(self.registers.pc);
         self.registers.pc = self.registers.pc.wrapping_add(1);
-        self.instruction = Instruction::from_opcode(self.cur_opcode);
+
+        if self.cur_opcode != 0xCB {
+            self.instruction = Instruction::from_opcode(self.cur_opcode);
+            return;
+        }
+
+        self.cur_opcode = self.ctx.borrow_mut().read_cycle(self.registers.pc);
+        self.registers.pc = self.registers.pc.wrapping_add(1);
+        self.instruction = Instruction::from_opcode_prefixed(self.cur_opcode);
     }
 
     fn fetch_data(&mut self) {
@@ -376,6 +384,15 @@ impl CPU {
             InstructionType::RRCA => {
                 self.rrca();
             }
+            InstructionType::RLC | InstructionType::RL => self.rlc_rl(),
+            InstructionType::RRC | InstructionType::RR => self.rrc_rc(),
+            InstructionType::SLA => self.sla(),
+            InstructionType::SRA => self.sra(),
+            InstructionType::SWAP => self.swap(),
+            InstructionType::SRL => self.srl(),
+            InstructionType::BIT => self.bit(),
+            InstructionType::RES => self.res(),
+            InstructionType::SET => self.set(),
             _ => panic!("Instruction {:?} not implemented.", self.instruction.itype),
         }
     }
@@ -865,6 +882,198 @@ impl CPU {
         self.registers.set_nf(false);
         self.registers.set_hf(false);
         self.registers.set_cf(a_lsb != 0);
+    }
+
+    /// RLC | RL (Rotate Left)
+    ///
+    /// Flags: Z N H C
+    ///        * 0 0 *
+    fn rlc_rl(&mut self) {
+        let reg1 = self.instruction.reg1.unwrap();
+        let value = self.fetched_data as u8;
+        let carry = (value & 0x80) >> 7;
+        let result = if self.instruction.itype == InstructionType::RLC {
+            (value << 1) | carry
+        } else {
+            (value << 1) | self.registers.cf() as u8
+        };
+
+        self.registers.set_zf(result == 0);
+        self.registers.set_nf(false);
+        self.registers.set_hf(false);
+        self.registers.set_cf(carry != 0);
+
+        if reg1 == Register::HL {
+            self.ctx.borrow_mut().write_cycle(self.mem_dest, result);
+        } else {
+            self.registers.write8(reg1, result);
+        }
+    }
+
+    /// RRC | RR (Rotate Right)
+    ///
+    /// Flags: Z N H C
+    ///        * 0 0 *
+    fn rrc_rc(&mut self) {
+        let reg1 = self.instruction.reg1.unwrap();
+        let value = self.fetched_data as u8;
+        let carry = value & 1;
+        let result = if self.instruction.itype == InstructionType::RRC {
+            (value >> 1) | (carry << 7)
+        } else {
+            (value >> 1) | ((self.registers.cf() as u8) << 7)
+        };
+
+        self.registers.set_zf(result == 0);
+        self.registers.set_nf(false);
+        self.registers.set_hf(false);
+        self.registers.set_cf(carry != 0);
+
+        if reg1 == Register::HL {
+            self.ctx.borrow_mut().write_cycle(self.mem_dest, result);
+        } else {
+            self.registers.write8(reg1, result);
+        }
+    }
+
+    /// SLA (Shift Left Arithmetic)
+    ///
+    /// Flags: Z N H C
+    ///        * 0 0 *
+    fn sla(&mut self) {
+        let reg1 = self.instruction.reg1.unwrap();
+        let value = self.fetched_data as u8;
+        let carry = value & 0x80;
+        let result = value << 1;
+
+        self.registers.set_zf(result == 0);
+        self.registers.set_nf(false);
+        self.registers.set_hf(false);
+        self.registers.set_cf(carry != 0);
+
+        if reg1 == Register::HL {
+            self.ctx.borrow_mut().write_cycle(self.mem_dest, result);
+        } else {
+            self.registers.write8(reg1, result);
+        }
+    }
+
+    /// SRA (Shift Right Arithmetic)
+    ///
+    /// Flags: Z N H C
+    ///        * 0 0 *
+    fn sra(&mut self) {
+        let reg1 = self.instruction.reg1.unwrap();
+        let value = self.fetched_data as u8;
+        let carry = value & 1;
+        // Conversion to i8 should preserve the sign bit
+        let result = ((value as i8) >> 1) as u8;
+
+        self.registers.set_zf(result == 0);
+        self.registers.set_nf(false);
+        self.registers.set_hf(false);
+        self.registers.set_cf(carry != 0);
+
+        if reg1 == Register::HL {
+            self.ctx.borrow_mut().write_cycle(self.mem_dest, result);
+        } else {
+            self.registers.write8(reg1, result);
+        }
+    }
+
+    /// SWAP
+    ///
+    /// Flags: Z N H C
+    ///        * 0 0 0
+    fn swap(&mut self) {
+        let reg1 = self.instruction.reg1.unwrap();
+        let value = self.fetched_data as u8;
+        let lsb = value & 0x0F;
+        let msb = (value & 0xF0) >> 4;
+        let result = (lsb << 4) | msb;
+
+        self.registers.set_zf(result == 0);
+        self.registers.set_nf(false);
+        self.registers.set_hf(false);
+        self.registers.set_cf(false);
+
+        if reg1 == Register::HL {
+            self.ctx.borrow_mut().write_cycle(self.mem_dest, result);
+        } else {
+            self.registers.write8(reg1, result);
+        }
+    }
+
+    /// SRL (Shift Right Logical)
+    ///
+    /// Flags: Z N H C
+    ///        * 0 0 *
+    fn srl(&mut self) {
+        let reg1 = self.instruction.reg1.unwrap();
+        let value = self.fetched_data as u8;
+        let carry = value & 1;
+        let result = value >> 1;
+
+        self.registers.set_zf(result == 0);
+        self.registers.set_nf(false);
+        self.registers.set_hf(false);
+        self.registers.set_cf(carry != 0);
+
+        if reg1 == Register::HL {
+            self.ctx.borrow_mut().write_cycle(self.mem_dest, result);
+        } else {
+            self.registers.write8(reg1, result);
+        }
+    }
+
+    /// BIT
+    ///
+    /// Flags: Z N H C
+    ///        * 0 1 -
+    fn bit(&mut self) {
+        // The bit number is encoded in bits 3–5 of the opcode
+        let n = (self.cur_opcode >> 3) & 0b111;
+        let value = self.fetched_data as u8;
+        let zf = value & (1 << n) == 0;
+        self.registers.set_zf(zf);
+        self.registers.set_nf(false);
+        self.registers.set_hf(true);
+    }
+
+    /// RES
+    ///
+    /// Flags: Z N H C
+    ///        - - - -
+    fn res(&mut self) {
+        // The bit number is encoded in bits 3–5 of the opcode
+        let n = (self.cur_opcode >> 3) & 0b111;
+        let value = self.fetched_data as u8;
+        let result = value & !(1 << n);
+        let reg1 = self.instruction.reg1.unwrap();
+
+        if reg1 == Register::HL {
+            self.ctx.borrow_mut().write_cycle(self.mem_dest, result);
+        } else {
+            self.registers.write8(reg1, result);
+        }
+    }
+
+    /// SET
+    ///
+    /// Flags: Z N H C
+    ///        - - - -
+    fn set(&mut self) {
+        // The bit number is encoded in bits 3–5 of the opcode
+        let n = (self.cur_opcode >> 3) & 0b111;
+        let value = self.fetched_data as u8;
+        let result = value | (1 << n);
+        let reg1 = self.instruction.reg1.unwrap();
+
+        if reg1 == Register::HL {
+            self.ctx.borrow_mut().write_cycle(self.mem_dest, result);
+        } else {
+            self.registers.write8(reg1, result);
+        }
     }
 }
 

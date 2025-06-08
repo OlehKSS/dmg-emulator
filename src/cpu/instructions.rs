@@ -164,6 +164,21 @@ impl Default for Instruction {
 }
 
 impl Instruction {
+    fn get_register_for_prefixed(opcode: u8) -> Register {
+        let reg_bits = opcode & 0b111; // equivalent to opcode % 8
+        match reg_bits {
+            0 => Register::B,
+            1 => Register::C,
+            2 => Register::D,
+            3 => Register::E,
+            4 => Register::H,
+            5 => Register::L,
+            6 => Register::HL,
+            7 => Register::A,
+            _ => panic!("Invalid register specifier {}", reg_bits),
+        }
+    }
+
     pub fn fmt_with_data(&self, data: u16) -> String {
         match self.mode {
             AddressMode::IMP => format!("{:?}", self.itype),
@@ -236,6 +251,58 @@ impl Instruction {
             ),
             AddressMode::RST => format!("{:?} ${:02X}", self.itype, data),
             _ => format!("{:?}", self.itype),
+        }
+    }
+
+    pub fn from_opcode_prefixed(opcode: u8) -> Self {
+        let reg1 = Instruction::get_register_for_prefixed(opcode);
+        let mode = if reg1 == Register::HL {
+            AddressMode::MR
+        } else {
+            AddressMode::R
+        };
+        let itype_code = (opcode & 0xF0) >> 4;
+        let itype = match itype_code {
+            0 => {
+                if opcode & 0x0F < 8 {
+                    InstructionType::RLC
+                } else {
+                    InstructionType::RRC
+                }
+            }
+            1 => {
+                if opcode & 0x0F < 8 {
+                    InstructionType::RL
+                } else {
+                    InstructionType::RR
+                }
+            }
+            2 => {
+                if opcode & 0x0F < 8 {
+                    InstructionType::SLA
+                } else {
+                    InstructionType::SRA
+                }
+            }
+            3 => {
+                if opcode & 0x0F < 8 {
+                    InstructionType::SWAP
+                } else {
+                    InstructionType::SRL
+                }
+            }
+            4..=7 => InstructionType::BIT,
+            8..=0xB => InstructionType::RES,
+            0xC..=0xF => InstructionType::SET,
+            _ => panic!("Invalid prefixed intruction code {:01X}", itype_code),
+        };
+
+        Instruction {
+            itype,
+            mode,
+            reg1: Some(reg1),
+            reg2: None,
+            cond: None,
         }
     }
 
