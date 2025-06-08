@@ -34,6 +34,8 @@ pub trait CpuContext {
     fn write_cycle(&mut self, address: u16, value: u8);
     fn get_interrupt(&mut self) -> Option<InterruptFlag>;
     fn ack_interrupt(&mut self, f: &InterruptFlag);
+    fn peek(&self, address: u16) -> u8;
+    fn ticks(&self) -> u64;
 }
 
 impl CPU {
@@ -55,13 +57,22 @@ impl CPU {
 
     pub fn step(&mut self) -> bool {
         if !self.halted {
+            let pc = self.registers.pc;
             self.fetch_instruction();
-            println!(
-                "Executing {:?} 0x{:02X} \n{}",
-                self.instruction.itype, self.cur_opcode, self.registers
-            );
             self.fetch_data();
-            println!("Fetched data 0x{:02X}", self.fetched_data);
+            {
+                let ctx = self.ctx.borrow();
+                println!(
+                    "{:08X} - {:04X}: {:-12} ({:02X} {:02X} {:02X}) {}",
+                    ctx.ticks(),
+                    pc,
+                    self.instruction.fmt_with_data(self.fetched_data),
+                    self.cur_opcode,
+                    ctx.peek(pc + 1),
+                    ctx.peek(pc + 2),
+                    self.registers
+                );
+            }
             self.execute();
             // status = true;
         } else {
@@ -432,7 +443,7 @@ impl CPU {
         let result = value.wrapping_sub(1);
         self.registers.set_zf(result == 0);
         self.registers.set_nf(true);
-        self.registers.set_hf((result & 0x0F) == 0x00);
+        self.registers.set_hf((value & 0x0F) == 0x00);
 
         if self.dest_is_mem {
             self.ctx.borrow_mut().write_cycle(self.mem_dest, result);

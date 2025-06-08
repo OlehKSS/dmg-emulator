@@ -29,7 +29,7 @@ impl Timer {
         }
     }
 
-    pub fn read(&mut self, address: u16) -> u8 {
+    pub fn read(&self, address: u16) -> u8 {
         match HardwareRegister::from_u16(address) {
             Some(HardwareRegister::DIV) => (self.div >> 8) as u8,
             Some(HardwareRegister::TIMA) => self.tima,

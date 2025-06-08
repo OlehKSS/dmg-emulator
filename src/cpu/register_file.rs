@@ -208,12 +208,16 @@ impl RegisterFile {
 
 impl fmt::Display for RegisterFile {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let zf = if self.zf() { "Z" } else { "-" };
+        let nf = if self.nf() { "N" } else { "-" };
+        let hf = if self.hf() { "H" } else { "-" };
+        let cf = if self.cf() { "C" } else { "-" };
+
         write!(
             f,
-            "PC: {:04X} SP: {:04X} \
-            A: {:02X} F: {:08b} B: {:02X} C: {:02X} \
-            D: {:02X} E: {:02X} H: {:02X} L: {:02X}",
-            self.pc, self.sp, self.a, self.f, self.d, self.c, self.d, self.e, self.h, self.l,
+            "A: {:02X} F: {}{}{}{} BC: {:02X}{:02X} \
+            DE: {:02X}{:02X} HL: {:02X}{:02X}",
+            self.a, zf, nf, hf, cf, self.b, self.c, self.d, self.e, self.h, self.l
         )
     }
 }

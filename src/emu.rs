@@ -62,27 +62,7 @@ impl CpuContext for Emulator {
 
     fn read_cycle(&mut self, address: u16) -> u8 {
         self.tick_cycle();
-
-        match address {
-            0x8000..=0x9FFF => self.ppu.vram_read(address),
-            0xFE00..=0xFE9F => {
-                if self.dma.is_active() {
-                    return 0xFF;
-                }
-                self.ppu.oam_read(address)
-            }
-            0xFF00..=0xFF7F | 0xFFFF => match HardwareRegister::from_u16(address) {
-                Some(HardwareRegister::DIV)
-                | Some(HardwareRegister::TIMA)
-                | Some(HardwareRegister::TMA)
-                | Some(HardwareRegister::TAC) => self.timer.read(address),
-                Some(HardwareRegister::IF) => self.interrupts.interrupt_flag.bits(),
-                Some(HardwareRegister::LY) => 0x94,
-                Some(HardwareRegister::IE) => self.interrupts.interrupt_enable.bits(),
-                _ => panic!("Unimplemented hardware register read."),
-            },
-            _ => self.bus.read(address),
-        }
+        self.peek(address)
     }
 
     fn write_cycle(&mut self, address: u16, value: u8) {
@@ -113,7 +93,7 @@ impl CpuContext for Emulator {
                     Some(HardwareRegister::IE) => {
                         self.interrupts.interrupt_enable = InterruptFlag::from_bits_truncate(value);
                     }
-                    _ => panic!("Unimplemented hardware register write."),
+                    _ => println!("Unimplemented hardware register write ${:04X}.", address),
                 };
             }
             _ => (),
@@ -146,6 +126,36 @@ impl CpuContext for Emulator {
         self.interrupts.interrupt_flag = InterruptFlag::from_bits_truncate(new_ifr);
         // TODO: How the bus should update these values?
         self.bus.write_register(HardwareRegister::IF, new_ifr);
+    }
+
+    fn peek(&self, address: u16) -> u8 {
+        match address {
+            0x8000..=0x9FFF => self.ppu.vram_read(address),
+            0xFE00..=0xFE9F => {
+                if self.dma.is_active() {
+                    return 0xFF;
+                }
+                self.ppu.oam_read(address)
+            }
+            0xFF00..=0xFF7F | 0xFFFF => match HardwareRegister::from_u16(address) {
+                Some(HardwareRegister::DIV)
+                | Some(HardwareRegister::TIMA)
+                | Some(HardwareRegister::TMA)
+                | Some(HardwareRegister::TAC) => self.timer.read(address),
+                Some(HardwareRegister::IF) => self.interrupts.interrupt_flag.bits(),
+                Some(HardwareRegister::LY) => 0x94,
+                Some(HardwareRegister::IE) => self.interrupts.interrupt_enable.bits(),
+                _ => {
+                    println!("Unimplemented hardware register read ${:02X}.", address);
+                    self.bus.read(address)
+                }
+            },
+            _ => self.bus.read(address),
+        }
+    }
+
+    fn ticks(&self) -> u64 {
+        self.ticks
     }
 }
 

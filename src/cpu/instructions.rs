@@ -164,6 +164,81 @@ impl Default for Instruction {
 }
 
 impl Instruction {
+    pub fn fmt_with_data(&self, data: u16) -> String {
+        match self.mode {
+            AddressMode::IMP => format!("{:?}", self.itype),
+            AddressMode::D8 => format!("{:?} ${:02X}", self.itype, data),
+            AddressMode::D16 => format!("{:?} ${:04X}", self.itype, data),
+            AddressMode::R => format!("{:?} {:?}", self.itype, self.reg1.unwrap()),
+            AddressMode::R_R => format!(
+                "{:?} {:?}, {:?}",
+                self.itype,
+                self.reg1.unwrap(),
+                self.reg2.unwrap()
+            ),
+            AddressMode::R_A8 | AddressMode::R_D8 => {
+                format!("{:?} {:?}, ${:02X}", self.itype, self.reg1.unwrap(), data)
+            }
+            AddressMode::R_A16 | AddressMode::R_D16 => {
+                format!("{:?} {:?}, ${:04X}", self.itype, self.reg1.unwrap(), data)
+            }
+            AddressMode::A8_R => {
+                format!("{:?} ${:02X}, {:?}", self.itype, data, self.reg2.unwrap())
+            }
+            AddressMode::A16_R | AddressMode::D16_R => {
+                format!("{:?} (${:04X}), {:?}", self.itype, data, self.reg2.unwrap())
+            }
+            AddressMode::MR => format!("{:?} ({:?})", self.itype, self.reg1.unwrap()),
+            AddressMode::MR_R => format!(
+                "{:?} ({:?}), {:?}",
+                self.itype,
+                self.reg1.unwrap(),
+                self.reg2.unwrap()
+            ),
+            AddressMode::R_MR => format!(
+                "{:?} {:?}, ({:?})",
+                self.itype,
+                self.reg1.unwrap(),
+                self.reg2.unwrap()
+            ),
+            AddressMode::MR_D8 => {
+                format!("{:?} ({:?}), ${:02X}", self.itype, self.reg1.unwrap(), data)
+            }
+            AddressMode::R_HLI => format!(
+                "{:?} {:?}, ({:?}+)",
+                self.itype,
+                self.reg1.unwrap(),
+                self.reg2.unwrap()
+            ),
+            AddressMode::HLI_R => format!(
+                "{:?} ({:?}+), {:?}",
+                self.itype,
+                self.reg1.unwrap(),
+                self.reg2.unwrap()
+            ),
+            AddressMode::R_HLD => format!(
+                "{:?} {:?}, ({:?}-)",
+                self.itype,
+                self.reg1.unwrap(),
+                self.reg2.unwrap()
+            ),
+            AddressMode::HLD_R => format!(
+                "{:?} ({:?}-), {:?}",
+                self.itype,
+                self.reg1.unwrap(),
+                self.reg2.unwrap()
+            ),
+            AddressMode::HL_SPR => format!(
+                "{:?} ({:?}), SP+{}",
+                self.itype,
+                self.reg1.unwrap(),
+                data & 0xFF
+            ),
+            AddressMode::RST => format!("{:?} ${:02X}", self.itype, data),
+            _ => format!("{:?}", self.itype),
+        }
+    }
+
     pub fn from_opcode(opcode: u8) -> Self {
         match opcode {
             0x00 => Instruction {
@@ -1771,9 +1846,9 @@ impl Instruction {
             },
             0xE0 => Instruction {
                 itype: InstructionType::LDH,
-                mode: AddressMode::R_A8,
-                reg1: Some(Register::A),
-                reg2: None,
+                mode: AddressMode::A8_R,
+                reg1: None,
+                reg2: Some(Register::A),
                 cond: None,
             },
             0xE1 => Instruction {

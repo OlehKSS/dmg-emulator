@@ -97,8 +97,11 @@ impl MemoryBus {
             0xC000..=0xCFFF => self.bytes[address as usize],
             0xD000..=0xDFFF => {
                 // In DMG mode, 0xD000 - 0xDFFF mirrors 0xC000 - 0xCFFF (RAM Bank 0).
-                let rom0_address = address - 0x1000;
-                self.bytes[rom0_address as usize]
+                // Diabled mirroring for now
+                // TODO: Should we enable it?
+                // let rom0_address = address - 0x1000;
+                // self.bytes[rom0_address as usize]
+                self.bytes[address as usize]
             }
             0xE000..=0xFDFF => {
                 // Reserved, echo RAM
@@ -127,6 +130,7 @@ impl MemoryBus {
     }
 
     pub fn write(&mut self, address: u16, value: u8) {
+        // TODO: Should we enable mirroring?
         self.bytes[address as usize] = value;
     }
 
