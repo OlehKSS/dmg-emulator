@@ -516,8 +516,17 @@ impl CPU {
 
     fn load(&mut self) {
         if self.dest_is_mem {
+            if self.instruction.reg2.is_none() {
+                // 0x36 LD [HL], n8
+                self.ctx
+                    .borrow_mut()
+                    .write_cycle(self.mem_dest, self.fetched_data as u8);
+                return;
+            }
+
             let reg2 = self.instruction.reg2.unwrap();
             if reg2.is_16bit() {
+                // 0x08 LD [a16], SP
                 self.ctx
                     .borrow_mut()
                     .write_cycle(self.mem_dest, self.fetched_data as u8); // lo
