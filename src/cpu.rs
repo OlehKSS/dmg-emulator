@@ -188,7 +188,6 @@ impl CPU {
                     .write16(Register::HL, address.wrapping_sub(1));
             }
             AddressMode::HL_SPR => {
-                // TODO: Is it supposed to be stack ptr?
                 self.fetched_data = self.ctx.borrow_mut().read_cycle(self.registers.pc) as u16;
                 self.registers.pc = self.registers.pc.wrapping_add(1);
             }
@@ -219,6 +218,8 @@ impl CPU {
             }
             AddressMode::A8_R => {
                 self.dest_is_mem = true;
+                // Only used by LDH, hardcoded its data
+                self.fetched_data = self.registers.a as u16;
                 self.mem_dest =
                     (self.ctx.borrow_mut().read_cycle(self.registers.pc) as u16) | 0xFF00;
                 self.registers.pc = self.registers.pc.wrapping_add(1); // Should probably be wrapping add everywhere
@@ -532,11 +533,23 @@ impl CPU {
             return;
         }
 
-        if self.instruction.mode == AddressMode::HL_SPR {
-            todo!("Implement LD for AddressMode::HL_SPR");
-        }
-
         let reg1 = self.instruction.reg1.unwrap();
+
+        if self.instruction.mode == AddressMode::HL_SPR {
+            assert!(reg1 == Register::HL);
+            // Offset is a signed value
+            let e8 = self.fetched_data as i8;
+            // wrapping_add handles signed addition
+            let result = self.registers.sp.wrapping_add(e8 as u16);
+            let half_carry = (self.registers.sp & 0xF) + ((e8 as u16) & 0xF) > 0xF;
+            let carry = (self.registers.sp & 0xFF) + ((e8 as u16) & 0xFF) > 0xFF;
+            self.registers.write16(reg1, result);
+            self.registers.set_zf(false);
+            self.registers.set_nf(false);
+            self.registers.set_cf(carry);
+            self.registers.set_hf(half_carry);
+            return;
+        }
 
         if reg1.is_16bit() {
             self.registers.write16(reg1, self.fetched_data);
@@ -716,8 +729,20 @@ impl CPU {
     fn add(&mut self) {
         let reg1 = self.instruction.reg1.unwrap();
 
-        if reg1.is_16bit() {
-            assert!(reg1 == Register::HL);
+        if reg1 == Register::SP {
+            let e8 = self.fetched_data as i8;
+            let result = self.registers.sp.wrapping_add(e8 as u16);
+            let half_carry = (self.registers.sp & 0xF) + ((e8 as u16) & 0xF) > 0xF;
+            let carry = (self.registers.sp & 0xFF) + ((e8 as u16) & 0xFF) > 0xFF;
+            self.registers.set_zf(false);
+            self.registers.set_nf(false);
+            self.registers.set_hf(half_carry);
+            self.registers.set_cf(carry);
+            self.registers.write16(Register::SP, result);
+            return;
+        }
+
+        if reg1 == Register::HL {
             let value = self.fetched_data;
             let (result, carry) = self.registers.read16(Register::HL).overflowing_add(value);
             let half_carry =

@@ -244,13 +244,12 @@ impl Instruction {
                 self.reg2.unwrap()
             ),
             AddressMode::HL_SPR => format!(
-                "{:?} ({:?}), SP+{}",
+                "{:?} {:?}, SP+{}",
                 self.itype,
                 self.reg1.unwrap(),
                 data & 0xFF
             ),
             AddressMode::RST => format!("{:?} ${:02X}", self.itype, data),
-            _ => format!("{:?}", self.itype),
         }
     }
 
@@ -1957,8 +1956,8 @@ impl Instruction {
             },
             0xE8 => Instruction {
                 itype: InstructionType::ADD,
-                mode: AddressMode::IMP,
-                reg1: None,
+                mode: AddressMode::R_D8,
+                reg1: Some(Register::SP),
                 reg2: None,
                 cond: None,
             },
@@ -2045,9 +2044,9 @@ impl Instruction {
             },
             0xF8 => Instruction {
                 itype: InstructionType::LD,
-                mode: AddressMode::IMP,
-                reg1: None,
-                reg2: None,
+                mode: AddressMode::HL_SPR,
+                reg1: Some(Register::HL),
+                reg2: Some(Register::SP),
                 cond: None,
             },
             0xF9 => Instruction {

@@ -216,8 +216,8 @@ impl fmt::Display for RegisterFile {
         write!(
             f,
             "A: {:02X} F: {}{}{}{} BC: {:02X}{:02X} \
-            DE: {:02X}{:02X} HL: {:02X}{:02X}",
-            self.a, zf, nf, hf, cf, self.b, self.c, self.d, self.e, self.h, self.l
+            DE: {:02X}{:02X} HL: {:02X}{:02X} SP: {:04X}",
+            self.a, zf, nf, hf, cf, self.b, self.c, self.d, self.e, self.h, self.l, self.sp
         )
     }
 }

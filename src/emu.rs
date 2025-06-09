@@ -80,6 +80,9 @@ impl CpuContext for Emulator {
             }
             0xFF00..=0xFF7F | 0xFFFF => {
                 match HardwareRegister::from_u16(address) {
+                    Some(HardwareRegister::SB) | Some(HardwareRegister::SC) => {
+                        self.bus.write(address, value)
+                    }
                     Some(HardwareRegister::DIV)
                     | Some(HardwareRegister::TIMA)
                     | Some(HardwareRegister::TMA)
@@ -138,6 +141,7 @@ impl CpuContext for Emulator {
                 self.ppu.oam_read(address)
             }
             0xFF00..=0xFF7F | 0xFFFF => match HardwareRegister::from_u16(address) {
+                Some(HardwareRegister::SB) | Some(HardwareRegister::SC) => self.bus.read(address),
                 Some(HardwareRegister::DIV)
                 | Some(HardwareRegister::TIMA)
                 | Some(HardwareRegister::TMA)
