@@ -211,8 +211,13 @@ impl CPU {
                 };
                 self.fetched_data = self.ctx.borrow_mut().read_cycle(address) as u16;
             }
-            AddressMode::R_A8 | AddressMode::D8 => {
-                // Stubs or final implementation?
+            AddressMode::R_A8 => {
+                let a8 = self.ctx.borrow_mut().read_cycle(self.registers.pc) as u16;
+                self.registers.pc = self.registers.pc.wrapping_add(1);
+                let address = a8 | 0xFF00;
+                self.fetched_data = self.ctx.borrow_mut().read_cycle(address) as u16;
+            }
+            AddressMode::D8 => {
                 self.fetched_data = self.ctx.borrow_mut().read_cycle(self.registers.pc) as u16;
                 self.registers.pc = self.registers.pc.wrapping_add(1);
             }
@@ -574,9 +579,7 @@ impl CPU {
                 .write_cycle(self.mem_dest, self.fetched_data as u8);
         } else {
             assert!(self.instruction.reg1.unwrap() == Register::A);
-            let address = 0xFF00 | self.fetched_data;
-            let data = self.ctx.borrow_mut().read_cycle(address);
-            self.registers.write8(Register::A, data);
+            self.registers.write8(Register::A, self.fetched_data as u8);
         }
     }
 
