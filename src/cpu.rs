@@ -700,6 +700,7 @@ impl CPU {
             }
             if self.registers.cf() {
                 adjust |= 0x60;
+                carry = true;
             }
             a = a.wrapping_sub(adjust);
         }
