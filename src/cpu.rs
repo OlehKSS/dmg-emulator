@@ -9,6 +9,14 @@ use super::interrupts::{InterruptFlag, get_hadler_address};
 use instructions::*;
 use register_file::{Register, RegisterFile};
 
+#[derive(Copy, Clone, Debug, PartialEq)]
+#[repr(u8)]
+enum CpuMode {
+    Running,
+    Halted,
+    Stopped,
+}
+
 // #[derive(Debug)]
 #[allow(dead_code)]
 pub struct CPU {
@@ -20,8 +28,7 @@ pub struct CPU {
     cur_opcode: u8,
     instruction: Instruction,
 
-    halted: bool,
-    stepping: bool,
+    mode: CpuMode,
     ime: bool,
     ime_scheduled: bool,
 
@@ -47,8 +54,7 @@ impl CPU {
             dest_is_mem: false,
             cur_opcode: 0,
             instruction: Instruction::default(),
-            halted: false,
-            stepping: true,
+            mode: CpuMode::Running,
             ime: false,
             ime_scheduled: false,
             ctx,
@@ -56,32 +62,37 @@ impl CPU {
     }
 
     pub fn step(&mut self) -> bool {
-        if !self.halted {
-            let pc = self.registers.pc;
-            self.fetch_instruction();
-            self.fetch_data();
-            {
-                let ctx = self.ctx.borrow();
-                println!(
-                    "{:08X} - {:04X}: {:-12} ({:02X} {:02X} {:02X}) {}",
-                    ctx.ticks(),
-                    pc,
-                    self.instruction.fmt_with_data(self.fetched_data),
-                    self.cur_opcode,
-                    ctx.peek(pc + 1),
-                    ctx.peek(pc + 2),
-                    self.registers
-                );
+        match self.mode {
+            CpuMode::Running => {
+                let pc = self.registers.pc;
+                self.fetch_instruction();
+                self.fetch_data();
+                {
+                    let ctx = self.ctx.borrow();
+                    println!(
+                        "{:08X} - {:04X}: {:-12} ({:02X} {:02X} {:02X}) {}",
+                        ctx.ticks(),
+                        pc,
+                        self.instruction.fmt_with_data(self.fetched_data),
+                        self.cur_opcode,
+                        ctx.peek(pc + 1),
+                        ctx.peek(pc + 2),
+                        self.registers
+                    );
+                }
+                self.execute();
             }
-            self.execute();
-            // status = true;
-        } else {
-            if self.ctx.borrow_mut().get_interrupt().is_some() {
-                // Resume if an interrupt is requested
-                self.halted = false;
+            CpuMode::Halted => {
+                let mut ctx = self.ctx.borrow_mut();
+                if ctx.get_interrupt().is_some() {
+                    // Resume if an interrupt is requested
+                    self.mode = CpuMode::Running;
+                }
+                ctx.tick_cycle();
             }
-            self.ctx.borrow_mut().tick_cycle();
-            return false;
+            CpuMode::Stopped => {
+                return false;
+            }
         }
 
         if self.ime {
@@ -297,7 +308,10 @@ impl CPU {
                 // Nothing to do
             }
             InstructionType::HALT => {
-                self.halt();
+                self.mode = CpuMode::Halted;
+            }
+            InstructionType::STOP => {
+                self.mode = CpuMode::Stopped;
             }
             InstructionType::DI => {
                 self.disable_interrupts();
@@ -414,10 +428,6 @@ impl CPU {
         }
 
         true
-    }
-
-    fn halt(&mut self) {
-        self.halted = true;
     }
 
     fn disable_interrupts(&mut self) {
