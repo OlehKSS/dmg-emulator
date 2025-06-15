@@ -131,7 +131,7 @@ impl CpuContext for Emulator {
         self.bus.write_register(HardwareRegister::IF, new_ifr);
     }
 
-    fn peek(&self, address: u16) -> u8 {
+    fn peek(&mut self, address: u16) -> u8 {
         match address {
             0x8000..=0x9FFF => self.ppu.vram_read(address),
             0xFE00..=0xFE9F => {
@@ -147,7 +147,7 @@ impl CpuContext for Emulator {
                 | Some(HardwareRegister::TMA)
                 | Some(HardwareRegister::TAC) => self.timer.read(address),
                 Some(HardwareRegister::IF) => self.interrupts.interrupt_flag.bits(),
-                Some(HardwareRegister::LY) => 0x94,
+                Some(HardwareRegister::LY) => self.bus.read(address),
                 Some(HardwareRegister::IE) => self.interrupts.interrupt_enable.bits(),
                 _ => {
                     println!("Unimplemented hardware register read ${:02X}.", address);

@@ -58,6 +58,8 @@ impl HardwareRegister {
             x if x == HardwareRegister::TMA as u16 => Some(HardwareRegister::TMA),
             x if x == HardwareRegister::TAC as u16 => Some(HardwareRegister::TAC),
             x if x == HardwareRegister::IF as u16 => Some(HardwareRegister::IF),
+            x if x == HardwareRegister::LY as u16 => Some(HardwareRegister::LY),
+            x if x == HardwareRegister::DMA as u16 => Some(HardwareRegister::DMA),
             x if x == HardwareRegister::IE as u16 => Some(HardwareRegister::IE),
             _ => None,
         }

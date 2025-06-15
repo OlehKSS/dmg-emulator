@@ -41,7 +41,7 @@ pub trait CpuContext {
     fn write_cycle(&mut self, address: u16, value: u8);
     fn get_interrupt(&mut self) -> Option<InterruptFlag>;
     fn ack_interrupt(&mut self, f: &InterruptFlag);
-    fn peek(&self, address: u16) -> u8;
+    fn peek(&mut self, address: u16) -> u8;
     fn ticks(&self) -> u64;
 }
 
@@ -68,7 +68,7 @@ impl CPU {
                 self.fetch_instruction();
                 self.fetch_data();
                 {
-                    let ctx = self.ctx.borrow();
+                    let mut ctx = self.ctx.borrow_mut();
                     println!(
                         "{:08X} - {:04X}: {:-12} ({:02X} {:02X} {:02X}) {}",
                         ctx.ticks(),
