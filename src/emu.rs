@@ -61,12 +61,12 @@ impl CpuContext for Emulator {
     }
 
     fn read_cycle(&mut self, address: u16) -> u8 {
+        let value = self.peek(address);
         self.tick_cycle();
-        self.peek(address)
+        value
     }
 
     fn write_cycle(&mut self, address: u16, value: u8) {
-        self.tick_cycle();
         // Write everything to bus just in case
         self.bus.write(address, value);
 
@@ -101,6 +101,7 @@ impl CpuContext for Emulator {
             }
             _ => (),
         }
+        self.tick_cycle();
     }
 
     fn get_interrupt(&mut self) -> Option<InterruptFlag> {
