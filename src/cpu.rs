@@ -594,6 +594,7 @@ impl CPU {
         } else {
             assert!(self.instruction.reg1.unwrap() == Register::A);
             self.registers.write8(Register::A, self.fetched_data as u8);
+            self.ctx.borrow_mut().tick_cycle();
         }
     }
 
