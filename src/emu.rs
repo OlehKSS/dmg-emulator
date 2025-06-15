@@ -345,9 +345,9 @@ impl Emulator {
                 .vram_read(START_ADDRESS + tile_num * 16 + tile_byte + 1);
 
             for bit in (0..=7u16).rev() {
-                let hi = (b1 & (1 << bit)) << 1;
-                let lo = b2 & (1 << bit);
-                let color_index = (hi | lo) as usize;
+                let hi = ((b1 & (1 << bit)) != 0) as u8;
+                let lo = ((b2 & (1 << bit)) != 0) as u8;
+                let color_index = ((hi << 1) | lo) as usize;
                 let color = colors[color_index];
 
                 let x_rc = x + (((7 - bit) as i32) * scale);
