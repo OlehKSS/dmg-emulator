@@ -227,7 +227,6 @@ impl Emulator {
 
             // Limit frame rate to 60Hz
             Emulator::delay(16);
-            emu.borrow_mut().ticks += 1;
         }
 
         Ok(())

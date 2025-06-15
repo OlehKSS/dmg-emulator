@@ -492,6 +492,10 @@ impl CPU {
     fn increment(&mut self) {
         let reg1 = self.instruction.reg1.unwrap();
 
+        if reg1.is_16bit() {
+            self.ctx.borrow_mut().tick_cycle();
+        }
+
         if reg1.is_16bit() && !self.dest_is_mem {
             // Does not change flags
             let result = self.fetched_data.wrapping_add(1);
