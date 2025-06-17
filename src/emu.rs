@@ -1,6 +1,6 @@
-use std::cell::RefCell;
 use std::error::Error;
-use std::rc::Rc;
+use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{Arc, Mutex, mpsc};
 use std::{thread, time};
 
 use crate::interrupts::InterruptFlag;
@@ -9,14 +9,10 @@ use super::bus::{HardwareRegister, MemoryBus};
 use super::cart::Cartridge;
 use super::cpu::*;
 use super::dma::DMA;
+use super::gui::{GUI, GuiAction};
 use super::interrupts::InterruptLine;
 use super::ppu::PPU;
 use super::timer::Timer;
-
-use sdl2::event::Event;
-use sdl2::keyboard::Keycode;
-use sdl2::pixels::Color;
-use sdl2::rect::Rect;
 
 /// The main emulator state.
 ///
@@ -29,17 +25,12 @@ use sdl2::rect::Rect;
 ///
 // #[derive(Debug)]
 pub struct Emulator {
-    paused: bool,
-    running: bool,
     ticks: u64,
     bus: MemoryBus,
     interrupts: InterruptLine,
     dma: DMA,
     ppu: PPU,
     timer: Timer,
-    sdl_context: Option<sdl2::Sdl>,
-    canvas: Option<sdl2::render::Canvas<sdl2::video::Window>>,
-    debug_canvas: Option<sdl2::render::Canvas<sdl2::video::Window>>,
     debug_msg: String,
 }
 
@@ -80,9 +71,17 @@ impl CpuContext for Emulator {
             }
             0xFF00..=0xFF7F | 0xFFFF => {
                 match HardwareRegister::from_u16(address) {
-                    Some(HardwareRegister::SB) | Some(HardwareRegister::SC) => {
-                        self.bus.write(address, value)
+                    Some(HardwareRegister::SB) => {
+                        self.bus.write(address, value);
+                        let serial_transfer_requested =
+                            self.bus.read_register(HardwareRegister::SC) == 0x81;
+
+                        if serial_transfer_requested {
+                            self.debug_msg.push(value as char);
+                            self.bus.write_register(HardwareRegister::SC, 0);
+                        }
                     }
+                    Some(HardwareRegister::SC) => self.bus.write(address, value),
                     Some(HardwareRegister::DIV)
                     | Some(HardwareRegister::TIMA)
                     | Some(HardwareRegister::TMA)
@@ -165,12 +164,6 @@ impl CpuContext for Emulator {
 }
 
 impl Emulator {
-    const SCREEN_WIDTH: u32 = 20;
-    const SCREEN_HEIGHT: u32 = 18;
-    const DEBUG_SCREEN_WIDTH: u32 = 16;
-    const DEBUG_SCREEN_HEIGHT: u32 = 24;
-    const SCALE: u32 = 5;
-
     pub fn delay(ms: u64) {
         let d_ms = time::Duration::from_millis(ms);
         thread::sleep(d_ms);
@@ -178,186 +171,71 @@ impl Emulator {
 
     pub fn new() -> Self {
         Emulator {
-            paused: false,
-            running: false,
             ticks: 0,
             bus: MemoryBus::new(),
             interrupts: InterruptLine::new(),
             dma: DMA::new(),
             ppu: PPU::new(),
             timer: Timer::new(),
-            sdl_context: None,
-            canvas: None,
-            debug_canvas: None,
             debug_msg: String::new(),
         }
     }
 
     pub fn run(rom_file: &str) -> Result<(), Box<dyn Error>> {
-        let emu = Rc::new(RefCell::new(Emulator::new()));
+        let emu_mutex = Arc::new(Mutex::new(Emulator::new()));
         println!("Reading {rom_file}");
         let rom = Cartridge::load(rom_file)?;
-        emu.borrow_mut().bus.set_rom(Some(rom));
-        let mut cpu = CPU::new(emu.clone());
+        let mut gui: GUI = GUI::new(true);
 
+        {
+            let mut emu = emu_mutex.lock().unwrap();
+            emu.bus.set_rom(Some(rom));
+        }
+
+        let mut cpu: CPU = CPU::new(emu_mutex.clone());
         println!("CPU initialized\n{}", cpu);
 
-        emu.borrow_mut().ui_init();
-        emu.borrow_mut().running = true;
+        let (tx, rx): (Sender<bool>, Receiver<bool>) = mpsc::channel();
 
-        while emu.borrow().running {
-            emu.borrow_mut().ui_handle_events();
-
-            if emu.borrow().paused {
-                Emulator::delay(100);
-                continue;
+        thread::spawn(move || {
+            loop {
+                if !cpu.step() {
+                    println!("CPU stopped.");
+                    tx.send(false).unwrap();
+                }
             }
+        });
 
-            if !cpu.step() {
-                println!("CPU stopped.");
+        loop {
+            let action: GuiAction = gui.handle_events();
+
+            if action == GuiAction::Exit {
                 return Ok(());
             }
 
-            emu.borrow_mut().debug_update();
-
-            if !emu.borrow().debug_msg.is_empty() {
-                println!("Debug message: {}", emu.borrow().debug_msg);
+            {
+                let emu = emu_mutex.lock().unwrap();
+                gui.update_debug_window(&emu.ppu);
+                // For testing
+                if !emu.debug_msg.is_empty() && emu.debug_msg.contains("Passed") {
+                    panic!("Debug message: {}", emu.debug_msg);
+                }
             }
 
-            emu.borrow_mut().update_debug_window();
+            match rx.try_recv() {
+                Ok(running) => {
+                    if !running {
+                        return Ok(());
+                    }
+                }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    return Ok(());
+                }
+                Err(mpsc::TryRecvError::Empty) => (),
+            };
 
             // Limit frame rate to 60Hz
             Emulator::delay(16);
-        }
-
-        Ok(())
-    }
-
-    fn ui_init(&mut self) {
-        if self.sdl_context.is_none() {
-            self.sdl_context = Some(sdl2::init().unwrap());
-        }
-
-        let video_subsystem = self.sdl_context.as_ref().unwrap().video().unwrap();
-        let window = video_subsystem
-            .window(
-                "GameBoy Emulator",
-                Self::SCREEN_WIDTH * 8 * Self::SCALE,
-                Self::SCREEN_HEIGHT * 8 * Self::SCALE,
-            )
-            .position_centered()
-            .build()
-            .unwrap();
-
-        let (posx, posy) = window.position();
-
-        let mut canvas = window.into_canvas().build().unwrap();
-        canvas.set_draw_color(Color::RGB(0, 0, 0));
-        canvas.clear();
-        canvas.present();
-
-        self.canvas = Some(canvas);
-
-        let debug_window = video_subsystem
-            .window(
-                "Debug Info",
-                Self::DEBUG_SCREEN_WIDTH * 8 * Self::SCALE + Self::DEBUG_SCREEN_WIDTH * Self::SCALE,
-                Self::DEBUG_SCREEN_HEIGHT * 8 * Self::SCALE
-                    + Self::DEBUG_SCREEN_HEIGHT * Self::SCALE,
-            )
-            .position(
-                posx + (((Self::SCREEN_WIDTH + 1) * 8 * Self::SCALE) as i32),
-                posy,
-            )
-            .build()
-            .unwrap();
-
-        let mut debug_canvas = debug_window.into_canvas().build().unwrap();
-        debug_canvas.set_draw_color(Color::RGB(100, 0, 0));
-        debug_canvas.clear();
-        debug_canvas.present();
-
-        self.debug_canvas = Some(debug_canvas);
-    }
-
-    fn ui_handle_events(&mut self) {
-        let mut event_pump = self.sdl_context.as_ref().unwrap().event_pump().unwrap();
-
-        for event in event_pump.poll_iter() {
-            match event {
-                Event::Quit { .. }
-                | Event::KeyDown {
-                    keycode: Some(Keycode::Escape),
-                    ..
-                } => self.running = false,
-                _ => {}
-            }
-        }
-    }
-
-    fn debug_update(&mut self) {
-        let serial_transfer_requested = self.bus.read_register(HardwareRegister::SC) == 0x81;
-
-        if serial_transfer_requested {
-            let c = self.bus.read_register(HardwareRegister::SB);
-            self.debug_msg.push(c as char);
-            self.bus.write_register(HardwareRegister::SC, 0);
-        }
-    }
-
-    fn update_debug_window(&mut self) {
-        let mut x_draw = 0i32;
-        let mut y_draw = 0i32;
-        let mut tile_num = 0u16;
-        let scale = Self::SCALE as i32;
-
-        for y in 0..Self::DEBUG_SCREEN_HEIGHT {
-            for x in 0..Self::DEBUG_SCREEN_WIDTH {
-                let x_tile = x_draw + ((x as i32) * scale);
-                let y_tile = y_draw + ((y as i32) * scale);
-                self.display_tile(tile_num, x_tile, y_tile);
-                x_draw += 8 * scale;
-                tile_num += 1;
-            }
-            y_draw += 8 * scale;
-            x_draw = 0;
-        }
-
-        self.debug_canvas.as_mut().unwrap().present();
-    }
-
-    fn display_tile(&mut self, tile_num: u16, x: i32, y: i32) {
-        const GREEN_LIGHT: Color = Color::RGB(144, 238, 144);
-        const GREEN_MEDIUM: Color = Color::RGB(0, 128, 0);
-        const GREEN_DARK: Color = Color::RGB(0, 100, 0);
-        const GREEN_FOREST: Color = Color::RGB(34, 139, 34);
-
-        let colors = [GREEN_LIGHT, GREEN_MEDIUM, GREEN_DARK, GREEN_FOREST];
-
-        const START_ADDRESS: u16 = 0x8000;
-        let scale = Self::SCALE as i32;
-
-        for tile_byte in (0..16u16).step_by(2) {
-            let b1 = self
-                .ppu
-                .vram_read(START_ADDRESS + tile_num * 16 + tile_byte);
-            let b2 = self
-                .ppu
-                .vram_read(START_ADDRESS + tile_num * 16 + tile_byte + 1);
-
-            for bit in (0..=7u16).rev() {
-                let hi = ((b1 & (1 << bit)) != 0) as u8;
-                let lo = ((b2 & (1 << bit)) != 0) as u8;
-                let color_index = ((hi << 1) | lo) as usize;
-                let color = colors[color_index];
-
-                let x_rc = x + (((7 - bit) as i32) * scale);
-                let y_rc = y + (tile_byte as i32) / 2 * scale;
-                let rc = Rect::new(x_rc, y_rc, Self::SCALE, Self::SCALE);
-
-                self.debug_canvas.as_mut().unwrap().set_draw_color(color);
-                self.debug_canvas.as_mut().unwrap().fill_rect(rc).unwrap();
-            }
         }
     }
 }
