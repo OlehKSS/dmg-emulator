@@ -2,7 +2,7 @@ use super::bus::HardwareRegister;
 use super::interrupts::{InterruptFlag, InterruptRequest};
 use bitflags::bitflags;
 
-static DEFAULT_COLORS: [u32; 4] = [0xFFFFFFFF, 0xFFAAAAAA, 0xFF555555, 0xFF000000];
+pub static DEFAULT_COLORS: [u32; 4] = [0xFFFFFFFF, 0xFFAAAAAA, 0xFF555555, 0xFF000000];
 
 bitflags!(
     pub struct LcdControl : u8 {

@@ -3,6 +3,7 @@ use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
 use sdl2::rect::Rect;
 
+use super::lcd::DEFAULT_COLORS;
 use super::ppu::PPU;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -69,7 +70,7 @@ impl GUI {
                 .unwrap();
 
             let mut debug_canvas = debug_window.into_canvas().build().unwrap();
-            debug_canvas.set_draw_color(Color::RGB(100, 0, 0));
+            debug_canvas.set_draw_color(Color::RGB(0, 0, 0));
             debug_canvas.clear();
             debug_canvas.present();
 
@@ -131,13 +132,6 @@ impl GUI {
     }
 
     fn display_tile(&mut self, ppu: &PPU, tile_num: u16, x: i32, y: i32) {
-        const GREEN_LIGHT: Color = Color::RGB(144, 238, 144);
-        const GREEN_MEDIUM: Color = Color::RGB(0, 128, 0);
-        const GREEN_DARK: Color = Color::RGB(0, 100, 0);
-        const GREEN_FOREST: Color = Color::RGB(34, 139, 34);
-
-        let colors = [GREEN_LIGHT, GREEN_MEDIUM, GREEN_DARK, GREEN_FOREST];
-
         const START_ADDRESS: u16 = 0x8000;
         let scale = Self::SCALE as i32;
 
@@ -149,7 +143,7 @@ impl GUI {
                 let hi = ((b1 & (1 << bit)) != 0) as u8;
                 let lo = ((b2 & (1 << bit)) != 0) as u8;
                 let color_index = ((hi << 1) | lo) as usize;
-                let color = colors[color_index];
+                let color = color_from_u32(DEFAULT_COLORS[color_index]);
 
                 let x_rc = x + (((7 - bit) as i32) * scale);
                 let y_rc = y + (tile_byte as i32) / 2 * scale;
@@ -160,4 +154,14 @@ impl GUI {
             }
         }
     }
+}
+
+// Convert from ARGB to SDL2::Color
+fn color_from_u32(color: u32) -> Color {
+    let a = ((color >> 24) & 0xFF) as u8;
+    let r = ((color >> 16) & 0xFF) as u8;
+    let g = ((color >> 8) & 0xFF) as u8;
+    let b = (color & 0xFF) as u8;
+
+    Color::RGBA(r, g, b, a)
 }
