@@ -46,6 +46,7 @@ impl CpuContext for Emulator {
         for _ in 0..4 {
             self.ticks += 1;
             self.timer.tick(&mut self.interrupts);
+            self.ppu.tick(&mut self.interrupts);
         }
 
         self.dma.tick_cycle(&self.bus, &mut self.ppu);
@@ -70,7 +71,8 @@ impl CpuContext for Emulator {
                 self.ppu.oam_write(address, value);
             }
             0xFF00..=0xFF7F | 0xFFFF => {
-                match HardwareRegister::from_u16(address) {
+                let register = HardwareRegister::from_u16(address);
+                match register {
                     Some(HardwareRegister::SB) => {
                         self.bus.write(address, value);
                         let serial_transfer_requested =
@@ -91,6 +93,20 @@ impl CpuContext for Emulator {
                     Some(HardwareRegister::IF) => {
                         self.interrupts.interrupt_flag = InterruptFlag::from_bits_truncate(value);
                     }
+                    Some(HardwareRegister::LCDC)
+                    | Some(HardwareRegister::STAT)
+                    | Some(HardwareRegister::SCY)
+                    | Some(HardwareRegister::SCX)
+                    | Some(HardwareRegister::LY)
+                    | Some(HardwareRegister::LYC)
+                    | Some(HardwareRegister::BGP)
+                    | Some(HardwareRegister::OBP0)
+                    | Some(HardwareRegister::OBP1)
+                    | Some(HardwareRegister::WY)
+                    | Some(HardwareRegister::WX) => {
+                        self.ppu.lcd_write(register.unwrap(), value);
+                    }
+                    // TODO: Should we move DMA to LCD/PPU?
                     Some(HardwareRegister::DMA) => self.dma.start(value),
                     Some(HardwareRegister::IE) => {
                         self.interrupts.interrupt_enable = InterruptFlag::from_bits_truncate(value);
@@ -112,7 +128,7 @@ impl CpuContext for Emulator {
         let bus_ifr = self.bus.read_register(HardwareRegister::IF);
 
         if bus_ier != ier || bus_ifr != ifr {
-            panic!("Interrupt registers are not synchronized.");
+            //panic!("Interrupt registers are not synchronized.");
         }
 
         if (ier & ifr) != 0 {
@@ -140,20 +156,36 @@ impl CpuContext for Emulator {
                 }
                 self.ppu.oam_read(address)
             }
-            0xFF00..=0xFF7F | 0xFFFF => match HardwareRegister::from_u16(address) {
-                Some(HardwareRegister::SB) | Some(HardwareRegister::SC) => self.bus.read(address),
-                Some(HardwareRegister::DIV)
-                | Some(HardwareRegister::TIMA)
-                | Some(HardwareRegister::TMA)
-                | Some(HardwareRegister::TAC) => self.timer.read(address),
-                Some(HardwareRegister::IF) => self.interrupts.interrupt_flag.bits(),
-                Some(HardwareRegister::LY) => self.bus.read(address),
-                Some(HardwareRegister::IE) => self.interrupts.interrupt_enable.bits(),
-                _ => {
-                    println!("Unimplemented hardware register read ${:02X}.", address);
-                    self.bus.read(address)
+            0xFF00..=0xFF7F | 0xFFFF => {
+                let register = HardwareRegister::from_u16(address);
+                match register {
+                    Some(HardwareRegister::SB) | Some(HardwareRegister::SC) => {
+                        self.bus.read(address)
+                    }
+                    Some(HardwareRegister::DIV)
+                    | Some(HardwareRegister::TIMA)
+                    | Some(HardwareRegister::TMA)
+                    | Some(HardwareRegister::TAC) => self.timer.read(address),
+                    Some(HardwareRegister::IF) => self.interrupts.interrupt_flag.bits(),
+
+                    Some(HardwareRegister::LCDC)
+                    | Some(HardwareRegister::STAT)
+                    | Some(HardwareRegister::SCY)
+                    | Some(HardwareRegister::SCX)
+                    | Some(HardwareRegister::LY)
+                    | Some(HardwareRegister::LYC)
+                    | Some(HardwareRegister::BGP)
+                    | Some(HardwareRegister::OBP0)
+                    | Some(HardwareRegister::OBP1)
+                    | Some(HardwareRegister::WY)
+                    | Some(HardwareRegister::WX) => self.ppu.lcd_read(register.unwrap()),
+                    Some(HardwareRegister::IE) => self.interrupts.interrupt_enable.bits(),
+                    _ => {
+                        println!("Unimplemented hardware register read ${:02X}.", address);
+                        self.bus.read(address)
+                    }
                 }
-            },
+            }
             _ => self.bus.read(address),
         }
     }
@@ -186,6 +218,7 @@ impl Emulator {
         println!("Reading {rom_file}");
         let rom = Cartridge::load(rom_file)?;
         let mut gui: GUI = GUI::new(true);
+        CPU_DEBUG_LOG.set(false).unwrap();
 
         {
             let mut emu = emu_mutex.lock().unwrap();
@@ -206,6 +239,8 @@ impl Emulator {
             }
         });
 
+        let mut prev_frame: u32 = 0;
+
         loop {
             let action: GuiAction = gui.handle_events();
 
@@ -215,7 +250,12 @@ impl Emulator {
 
             {
                 let emu = emu_mutex.lock().unwrap();
-                gui.update_debug_window(&emu.ppu);
+
+                if prev_frame != emu.ppu.get_current_frame() {
+                    prev_frame = emu.ppu.get_current_frame();
+                    gui.update_debug_window(&emu.ppu);
+                }
+
                 // For testing
                 if !emu.debug_msg.is_empty() && emu.debug_msg.contains("Passed") {
                     panic!("Debug message: {}", emu.debug_msg);

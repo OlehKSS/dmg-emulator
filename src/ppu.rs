@@ -1,4 +1,13 @@
 use bitflags::bitflags;
+use std::thread;
+use std::time::{Duration, Instant};
+
+use crate::bus::HardwareRegister;
+use crate::interrupts::InterruptFlag;
+use crate::lcd::LcdStatus;
+
+use super::interrupts::InterruptRequest;
+use super::lcd::{LCD, LcdMode};
 
 bitflags!(
 /// Priority: 0 = No, 1 = BG and Window color indices 1–3 are drawn over this OBJ
@@ -35,17 +44,47 @@ bitflags!(
 ///     * Two separate tile maps are available, allowing for different layouts.
 const OAM_SIZE: usize = 0xA0;
 const VRAM_SIZE: usize = 0x2000;
+const LINES_PER_FRAME: u32 = 154;
+const TICKS_PER_LINE: u32 = 456;
+const YRES: usize = 144;
+const XRES: usize = 160;
+// Target frame rate is 60 Hz
+const TARGET_FRAME_TIME: Duration = Duration::from_millis(16);
+
 pub struct PPU {
     oam_ram: [u8; OAM_SIZE],
     vram: [u8; VRAM_SIZE], // 8KB
+    lcd: LCD,
+    timer: Instant,
+    start_time: Duration,
+    prev_frame_time: Duration,
+    frame_count: u32,
+    current_frame: u32,
+    line_ticks: u32,
+    video_buffer: [u32; YRES * XRES],
 }
 
 impl PPU {
     pub fn new() -> Self {
+        let mut lcd = LCD::new();
+        lcd.set_mode(LcdMode::OAM);
+
         PPU {
             oam_ram: [0; OAM_SIZE],
             vram: [0; VRAM_SIZE],
+            lcd,
+            timer: Instant::now(),
+            start_time: Duration::from_millis(0),
+            prev_frame_time: Duration::from_millis(0),
+            frame_count: 0,
+            current_frame: 0,
+            line_ticks: 0,
+            video_buffer: [0; YRES * XRES],
         }
+    }
+
+    pub fn get_current_frame(&self) -> u32 {
+        self.current_frame
     }
 
     pub fn oam_read(&self, address: u16) -> u8 {
@@ -75,6 +114,82 @@ impl PPU {
     pub fn vram_write(&mut self, address: u16, value: u8) {
         let vram_address = (address - 0x8000) as usize;
         self.vram[vram_address] = value;
+    }
+
+    pub fn lcd_read(&self, register: HardwareRegister) -> u8 {
+        self.lcd.read(register)
+    }
+
+    pub fn lcd_write(&mut self, register: HardwareRegister, value: u8) {
+        self.lcd.write(register, value);
+    }
+
+    pub fn tick<I: InterruptRequest>(&mut self, ctx: &mut I) {
+        self.line_ticks += 1;
+        let lcd_mode = self.lcd.get_mode();
+
+        match lcd_mode {
+            LcdMode::OAM => {
+                if self.line_ticks >= 80 {
+                    self.lcd.set_mode(LcdMode::XFER);
+                }
+            }
+            LcdMode::XFER => {
+                if self.line_ticks >= 80 + 172 {
+                    self.lcd.set_mode(LcdMode::HBLANK);
+                }
+            }
+            LcdMode::VBLANK => {
+                if self.line_ticks >= TICKS_PER_LINE {
+                    self.lcd.increment_ly(ctx);
+
+                    if (self.lcd.ly as u32) >= LINES_PER_FRAME {
+                        self.lcd.set_mode(LcdMode::OAM);
+                        self.lcd.ly = 0;
+                    }
+
+                    self.line_ticks = 0;
+                }
+            }
+            LcdMode::HBLANK => {
+                if self.line_ticks >= TICKS_PER_LINE {
+                    self.lcd.increment_ly(ctx);
+
+                    if (self.lcd.ly as usize) >= YRES {
+                        self.lcd.set_mode(LcdMode::VBLANK);
+
+                        ctx.request_interrupt(InterruptFlag::VBLANK);
+
+                        if self.lcd.status_contains(LcdStatus::VBLANK_INT_SELECT) {
+                            ctx.request_interrupt(InterruptFlag::LCD);
+                        }
+
+                        self.current_frame += 1;
+
+                        let end = self.timer.elapsed();
+                        let frame_time = end - self.prev_frame_time;
+
+                        if frame_time < TARGET_FRAME_TIME {
+                            thread::sleep(TARGET_FRAME_TIME - frame_time);
+                        }
+
+                        // TODO: Can we make it an overlay on our window by moving to emu.rs?
+                        if (end - self.start_time).as_millis() > 1000 {
+                            println!("FPS: {}", self.frame_count);
+                            self.start_time = end;
+                            self.frame_count = 0;
+                        }
+
+                        self.frame_count += 1;
+                        self.prev_frame_time = self.timer.elapsed();
+                    } else {
+                        self.lcd.set_mode(LcdMode::OAM);
+                    }
+
+                    self.line_ticks = 0;
+                }
+            }
+        }
     }
 }
 

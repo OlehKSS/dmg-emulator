@@ -28,9 +28,19 @@ pub struct MemoryBus {
 /// TMA Timer modulo
 /// TAC Timer control
 /// IF Interrupt flag
-/// DMA OAM DMA source address & start
-/// IE Interrupt enable
+/// LCDC LCD control
+/// STAT LCD status
+/// SCY Background viewport Y position
+/// SCX Background viewport X position
 /// LY LCD Y coordinate
+/// LCY LY Compare
+/// DMA OAM DMA source address & start
+/// BGP Background palette data
+/// OBP0 (Non-CGB Mode only) OBJ palette 0 data
+/// OBP1 (Non-CGB Mode only) OBJ palette 1 data
+/// WY Window Y position
+/// WX Window X position plus 7
+/// IE Interrupt enable
 #[allow(non_camel_case_types)]
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum HardwareRegister {
@@ -42,8 +52,18 @@ pub enum HardwareRegister {
     TMA = 0xFF06,
     TAC = 0xFF07,
     IF = 0xFF0F,
+    LCDC = 0xFF40,
+    STAT = 0xFF41,
+    SCY = 0xFF42,
+    SCX = 0xFF43,
     LY = 0xFF44,
+    LYC = 0xFF45,
     DMA = 0xFF46,
+    BGP = 0xFF47,
+    OBP0 = 0xFF48,
+    OBP1 = 0xFF49,
+    WY = 0xFF4A,
+    WX = 0xFF4B,
     IE = 0xFFFF,
 }
 
@@ -58,8 +78,18 @@ impl HardwareRegister {
             x if x == HardwareRegister::TMA as u16 => Some(HardwareRegister::TMA),
             x if x == HardwareRegister::TAC as u16 => Some(HardwareRegister::TAC),
             x if x == HardwareRegister::IF as u16 => Some(HardwareRegister::IF),
+            x if x == HardwareRegister::LCDC as u16 => Some(HardwareRegister::LCDC),
+            x if x == HardwareRegister::STAT as u16 => Some(HardwareRegister::STAT),
+            x if x == HardwareRegister::SCY as u16 => Some(HardwareRegister::SCY),
+            x if x == HardwareRegister::SCX as u16 => Some(HardwareRegister::SCX),
             x if x == HardwareRegister::LY as u16 => Some(HardwareRegister::LY),
+            x if x == HardwareRegister::LYC as u16 => Some(HardwareRegister::LYC),
             x if x == HardwareRegister::DMA as u16 => Some(HardwareRegister::DMA),
+            x if x == HardwareRegister::BGP as u16 => Some(HardwareRegister::BGP),
+            x if x == HardwareRegister::OBP0 as u16 => Some(HardwareRegister::OBP0),
+            x if x == HardwareRegister::OBP1 as u16 => Some(HardwareRegister::OBP1),
+            x if x == HardwareRegister::WY as u16 => Some(HardwareRegister::WY),
+            x if x == HardwareRegister::WX as u16 => Some(HardwareRegister::WX),
             x if x == HardwareRegister::IE as u16 => Some(HardwareRegister::IE),
             _ => None,
         }

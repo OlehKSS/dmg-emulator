@@ -8,6 +8,10 @@ use super::interrupts::{InterruptFlag, get_hadler_address};
 use instructions::*;
 use register_file::{Register, RegisterFile};
 
+use std::sync::OnceLock;
+
+pub static CPU_DEBUG_LOG: OnceLock<bool> = OnceLock::new();
+
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[repr(u8)]
 enum CpuMode {
@@ -66,7 +70,7 @@ impl CPU {
                 let pc = self.registers.pc;
                 self.fetch_instruction();
                 self.fetch_data();
-                {
+                if *CPU_DEBUG_LOG.get_or_init(|| false) {
                     let mut ctx = self.ctx.lock().unwrap();
                     println!(
                         "{:08X} - {:04X}: {:-12} ({:02X} {:02X} {:02X}) {}",
