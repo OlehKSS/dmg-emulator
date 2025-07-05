@@ -1,10 +1,11 @@
 use bitflags::bitflags;
+use std::collections::VecDeque;
 use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::bus::HardwareRegister;
 use crate::interrupts::InterruptFlag;
-use crate::lcd::LcdStatus;
+use crate::lcd::{LcdControl, LcdStatus};
 
 use super::interrupts::InterruptRequest;
 use super::lcd::{LCD, LcdMode};
@@ -28,6 +29,49 @@ bitflags!(
     }
 );
 
+#[derive(Copy, Clone, Debug, PartialEq)]
+enum FetchState {
+    Tile,
+    DataLow,
+    DataHigh,
+    Idle,
+    Push,
+}
+
+type Color = u32;
+
+struct PixelFifo {
+    fetch_state: FetchState,
+    fifo: VecDeque<Color>,
+    line_x: u8,
+    pushed_x: u8,
+    fetch_x: u8,
+    bgw_fetch_data: [u8; 3],
+    fetch_entry_data: [u8; 6], // OAM data
+    map_y: u8,
+    map_x: u8,
+    tile_y: u8,
+    fifo_x: u8,
+}
+
+impl PixelFifo {
+    pub fn new() -> Self {
+        PixelFifo {
+            fetch_state: FetchState::Tile,
+            fifo: VecDeque::new(),
+            line_x: 0,
+            pushed_x: 0,
+            fetch_x: 0,
+            bgw_fetch_data: [0; 3],
+            fetch_entry_data: [0; 6],
+            map_y: 0,
+            map_x: 0,
+            tile_y: 0,
+            fifo_x: 0,
+        }
+    }
+}
+
 /// PPU (Pixel Processing Unit)
 ///
 /// OAM (Object Attribute Memory) RAM stores sprite information.
@@ -46,8 +90,8 @@ const OAM_SIZE: usize = 0xA0;
 const VRAM_SIZE: usize = 0x2000;
 const LINES_PER_FRAME: u32 = 154;
 const TICKS_PER_LINE: u32 = 456;
-const YRES: usize = 144;
-const XRES: usize = 160;
+pub const YRES: usize = 144;
+pub const XRES: usize = 160;
 // Target frame rate is 60 Hz
 const TARGET_FRAME_TIME: Duration = Duration::from_millis(16);
 
@@ -62,6 +106,7 @@ pub struct PPU {
     current_frame: u32,
     line_ticks: u32,
     video_buffer: [u32; YRES * XRES],
+    pixel_fifo: PixelFifo,
 }
 
 impl PPU {
@@ -80,6 +125,7 @@ impl PPU {
             current_frame: 0,
             line_ticks: 0,
             video_buffer: [0; YRES * XRES],
+            pixel_fifo: PixelFifo::new(),
         }
     }
 
@@ -124,72 +170,195 @@ impl PPU {
         self.lcd.write(register, value);
     }
 
+    pub fn video_buffer_read(&self, pixel_index: usize) -> u32 {
+        self.video_buffer[pixel_index]
+    }
+
     pub fn tick<I: InterruptRequest>(&mut self, ctx: &mut I) {
         self.line_ticks += 1;
         let lcd_mode = self.lcd.get_mode();
 
         match lcd_mode {
-            LcdMode::OAM => {
-                if self.line_ticks >= 80 {
-                    self.lcd.set_mode(LcdMode::XFER);
-                }
-            }
-            LcdMode::XFER => {
-                if self.line_ticks >= 80 + 172 {
-                    self.lcd.set_mode(LcdMode::HBLANK);
-                }
-            }
-            LcdMode::VBLANK => {
-                if self.line_ticks >= TICKS_PER_LINE {
-                    self.lcd.increment_ly(ctx);
+            LcdMode::OAM => self.tick_oam(),
+            LcdMode::XFER => self.tick_xfer(ctx),
+            LcdMode::VBLANK => self.tick_vblank(ctx),
+            LcdMode::HBLANK => self.tick_hblank(ctx),
+        }
+    }
 
-                    if (self.lcd.ly as u32) >= LINES_PER_FRAME {
-                        self.lcd.set_mode(LcdMode::OAM);
-                        self.lcd.ly = 0;
+    fn tick_oam(&mut self) {
+        if self.line_ticks >= 80 {
+            self.lcd.set_mode(LcdMode::XFER);
+
+            self.pixel_fifo.fetch_state = FetchState::Tile;
+            self.pixel_fifo.line_x = 0;
+            self.pixel_fifo.fetch_x = 0;
+            self.pixel_fifo.pushed_x = 0;
+            self.pixel_fifo.fifo_x = 0;
+        }
+    }
+
+    fn tick_xfer<I: InterruptRequest>(&mut self, ctx: &mut I) {
+        self.pipeline_process();
+
+        if (self.pixel_fifo.pushed_x as usize) >= XRES {
+            self.pixel_fifo.fifo.clear(); // Reset pixel FIFO
+
+            self.lcd.set_mode(LcdMode::HBLANK);
+
+            if self.lcd.status_contains(LcdStatus::HBLANK_INT_SELECT) {
+                ctx.request_interrupt(InterruptFlag::LCD);
+            }
+        }
+    }
+
+    fn tick_vblank<I: InterruptRequest>(&mut self, ctx: &mut I) {
+        if self.line_ticks >= TICKS_PER_LINE {
+            self.lcd.increment_ly(ctx);
+
+            if (self.lcd.ly as u32) >= LINES_PER_FRAME {
+                self.lcd.set_mode(LcdMode::OAM);
+                self.lcd.ly = 0;
+            }
+
+            self.line_ticks = 0;
+        }
+    }
+
+    fn tick_hblank<I: InterruptRequest>(&mut self, ctx: &mut I) {
+        if self.line_ticks >= TICKS_PER_LINE {
+            self.lcd.increment_ly(ctx);
+
+            if (self.lcd.ly as usize) >= YRES {
+                self.lcd.set_mode(LcdMode::VBLANK);
+
+                ctx.request_interrupt(InterruptFlag::VBLANK);
+
+                if self.lcd.status_contains(LcdStatus::VBLANK_INT_SELECT) {
+                    ctx.request_interrupt(InterruptFlag::LCD);
+                }
+
+                self.current_frame += 1;
+
+                let end = self.timer.elapsed();
+                let frame_time = end - self.prev_frame_time;
+
+                if frame_time < TARGET_FRAME_TIME {
+                    thread::sleep(TARGET_FRAME_TIME - frame_time);
+                }
+
+                // TODO: Can we make it an overlay on our window by moving to emu.rs?
+                if (end - self.start_time).as_millis() > 1000 {
+                    println!("FPS: {}", self.frame_count);
+                    self.start_time = end;
+                    self.frame_count = 0;
+                }
+
+                self.frame_count += 1;
+                self.prev_frame_time = self.timer.elapsed();
+            } else {
+                self.lcd.set_mode(LcdMode::OAM);
+            }
+
+            self.line_ticks = 0;
+        }
+    }
+
+    fn pipeline_process(&mut self) {
+        self.pixel_fifo.map_y = self.lcd.ly + self.lcd.scroll_y;
+        self.pixel_fifo.map_x = self.pixel_fifo.fetch_x + self.lcd.scroll_x;
+        self.pixel_fifo.tile_y = ((self.lcd.ly + self.lcd.scroll_y) % 8) * 2;
+
+        if (self.line_ticks & 1) == 0 {
+            // Even line
+            self.pipeline_fetch();
+        }
+
+        self.pipeline_push_pixel();
+    }
+
+    fn pipeline_fetch(&mut self) {
+        match self.pixel_fifo.fetch_state {
+            FetchState::Tile => {
+                if self.lcd.control_contains(LcdControl::BG_WINDOW_ENABLE) {
+                    let address = self.lcd.get_bg_map_area()
+                        + ((self.pixel_fifo.map_x as u16) / 8)
+                        + (((self.pixel_fifo.map_y as u16) / 8) * 32);
+                    self.pixel_fifo.bgw_fetch_data[0] = self.vram_read(address);
+
+                    if self.lcd.get_bgw_data_area() == 0x8800 {
+                        // Why do we add 128 here?
+                        self.pixel_fifo.bgw_fetch_data[0] = self.pixel_fifo.bgw_fetch_data[0] + 128;
                     }
-
-                    self.line_ticks = 0;
                 }
+
+                self.pixel_fifo.fetch_state = FetchState::DataLow;
+                self.pixel_fifo.fetch_x += 8;
             }
-            LcdMode::HBLANK => {
-                if self.line_ticks >= TICKS_PER_LINE {
-                    self.lcd.increment_ly(ctx);
-
-                    if (self.lcd.ly as usize) >= YRES {
-                        self.lcd.set_mode(LcdMode::VBLANK);
-
-                        ctx.request_interrupt(InterruptFlag::VBLANK);
-
-                        if self.lcd.status_contains(LcdStatus::VBLANK_INT_SELECT) {
-                            ctx.request_interrupt(InterruptFlag::LCD);
-                        }
-
-                        self.current_frame += 1;
-
-                        let end = self.timer.elapsed();
-                        let frame_time = end - self.prev_frame_time;
-
-                        if frame_time < TARGET_FRAME_TIME {
-                            thread::sleep(TARGET_FRAME_TIME - frame_time);
-                        }
-
-                        // TODO: Can we make it an overlay on our window by moving to emu.rs?
-                        if (end - self.start_time).as_millis() > 1000 {
-                            println!("FPS: {}", self.frame_count);
-                            self.start_time = end;
-                            self.frame_count = 0;
-                        }
-
-                        self.frame_count += 1;
-                        self.prev_frame_time = self.timer.elapsed();
-                    } else {
-                        self.lcd.set_mode(LcdMode::OAM);
-                    }
-
-                    self.line_ticks = 0;
+            FetchState::DataLow => {
+                let address = self.lcd.get_bgw_data_area()
+                    + ((self.pixel_fifo.bgw_fetch_data[0] as u16) * 16)
+                    + (self.pixel_fifo.tile_y as u16);
+                self.pixel_fifo.bgw_fetch_data[1] = self.vram_read(address);
+                self.pixel_fifo.fetch_state = FetchState::DataHigh;
+            }
+            FetchState::DataHigh => {
+                let address = self.lcd.get_bgw_data_area()
+                    + ((self.pixel_fifo.bgw_fetch_data[0] as u16) * 16)
+                    + (self.pixel_fifo.tile_y as u16)
+                    + 1;
+                self.pixel_fifo.bgw_fetch_data[2] = self.vram_read(address);
+                self.pixel_fifo.fetch_state = FetchState::Idle;
+            }
+            FetchState::Idle => {
+                self.pixel_fifo.fetch_state = FetchState::Push;
+            }
+            FetchState::Push => {
+                if self.pipeline_fifo_add() {
+                    self.pixel_fifo.fetch_state = FetchState::Tile;
                 }
             }
         }
+    }
+
+    fn pipeline_push_pixel(&mut self) {
+        if self.pixel_fifo.fifo.len() > 8 {
+            // 8 pixels are required for the Pixel Rendering operation to take place
+            let pixel_data = self.pixel_fifo.fifo.pop_front().unwrap();
+
+            if self.pixel_fifo.line_x >= (self.lcd.scroll_x % 8) {
+                let pixel_index =
+                    (self.pixel_fifo.pushed_x as usize) + ((self.lcd.ly as usize) * XRES);
+                self.video_buffer[pixel_index] = pixel_data;
+                self.pixel_fifo.pushed_x += 1;
+            }
+
+            self.pixel_fifo.line_x += 1;
+        }
+    }
+
+    fn pipeline_fifo_add(&mut self) -> bool {
+        if self.pixel_fifo.fifo.len() > 8 {
+            // Pixel FIFO is full
+            return false;
+        }
+
+        let x = (self.pixel_fifo.fetch_x as i32) - (8 - ((self.lcd.scroll_x as i32) % 8));
+
+        for i in 0..8 {
+            let bit = 7 - i;
+            let lo = ((self.pixel_fifo.bgw_fetch_data[1] & (1 << bit)) != 0) as u8;
+            let hi = ((self.pixel_fifo.bgw_fetch_data[2] & (1 << bit)) != 0) as u8;
+            let color_index = ((hi << 1) | lo) as usize;
+            let color = self.lcd.bg_colors[color_index];
+
+            if x >= 0 {
+                self.pixel_fifo.fifo.push_back(color);
+                self.pixel_fifo.fifo_x += 1;
+            }
+        }
+
+        true
     }
 }
 

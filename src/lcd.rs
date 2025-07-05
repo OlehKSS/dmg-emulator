@@ -40,8 +40,8 @@ bitflags!(
 pub struct LCD {
     lcdc: LcdControl,
     lcds: LcdStatus,
-    scroll_x: u8,
-    scroll_y: u8,
+    pub scroll_x: u8,
+    pub scroll_y: u8,
     pub ly: u8,
     pub lyc: u8,
     dma: u8,
@@ -50,7 +50,7 @@ pub struct LCD {
     win_x: u8,
     win_y: u8,
 
-    bg_colors: [u32; 4],
+    pub bg_colors: [u32; 4],
     sp0_colors: [u32; 4],
     sp1_colors: [u32; 4],
 }
@@ -123,8 +123,28 @@ impl LCD {
         assert!(self.get_mode() == mode);
     }
 
+    pub fn get_bg_map_area(&self) -> u16 {
+        if self.lcdc.contains(LcdControl::BG_TILE_MAP_AREA) {
+            0x9C00
+        } else {
+            0x9800
+        }
+    }
+
+    pub fn get_bgw_data_area(&self) -> u16 {
+        if self.lcdc.contains(LcdControl::BG_WINDOW_TILE_DATA_AREA) {
+            0x8000
+        } else {
+            0x8800
+        }
+    }
+
     pub fn status_contains(&self, other: LcdStatus) -> bool {
         self.lcds.contains(other)
+    }
+
+    pub fn control_contains(&self, other: LcdControl) -> bool {
+        self.lcdc.contains(other)
     }
 
     pub fn increment_ly<I: InterruptRequest>(&mut self, ctx: &mut I) {

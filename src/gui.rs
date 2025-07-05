@@ -4,7 +4,7 @@ use sdl2::pixels::Color;
 use sdl2::rect::Rect;
 
 use super::lcd::DEFAULT_COLORS;
-use super::ppu::PPU;
+use super::ppu::{PPU, XRES, YRES};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum GuiAction {
@@ -27,8 +27,8 @@ impl Default for GUI {
 }
 
 impl GUI {
-    const SCREEN_WIDTH: u32 = 20;
-    const SCREEN_HEIGHT: u32 = 18;
+    const SCREEN_WIDTH: u32 = (XRES as u32) / 8;
+    const SCREEN_HEIGHT: u32 = (YRES as u32) / 8;
     const DEBUG_SCREEN_WIDTH: u32 = 16;
     const DEBUG_SCREEN_HEIGHT: u32 = 24;
     const SCALE: u32 = 5;
@@ -39,8 +39,8 @@ impl GUI {
         let window = video_subsystem
             .window(
                 "GameBoy Emulator",
-                Self::SCREEN_WIDTH * 8 * Self::SCALE,
-                Self::SCREEN_HEIGHT * 8 * Self::SCALE,
+                Self::SCREEN_WIDTH * 24 * Self::SCALE,
+                Self::SCREEN_HEIGHT * 24 * Self::SCALE,
             )
             .position_centered()
             .build()
@@ -57,9 +57,9 @@ impl GUI {
             let debug_window = video_subsystem
                 .window(
                     "Debug Info",
-                    Self::DEBUG_SCREEN_WIDTH * 8 * Self::SCALE
+                    Self::DEBUG_SCREEN_WIDTH * 24 * Self::SCALE
                         + Self::DEBUG_SCREEN_WIDTH * Self::SCALE,
-                    Self::DEBUG_SCREEN_HEIGHT * 8 * Self::SCALE
+                    Self::DEBUG_SCREEN_HEIGHT * 24 * Self::SCALE
                         + Self::DEBUG_SCREEN_HEIGHT * Self::SCALE,
                 )
                 .position(
@@ -104,6 +104,23 @@ impl GUI {
         }
 
         gui_event
+    }
+
+    pub fn update_window(&mut self, ppu: &PPU) {
+        for line_num in 0..(YRES as i32) {
+            for x in 0..(XRES as i32) {
+                let x_rc = x * (Self::SCALE as i32);
+                let y_rc = line_num * (Self::SCALE as i32);
+                let rc = Rect::new(x_rc, y_rc, Self::SCALE, Self::SCALE);
+                let pixel_index = (x as usize) + ((line_num as usize) * XRES);
+                let color = color_from_u32(ppu.video_buffer_read(pixel_index));
+
+                self.canvas.set_draw_color(color);
+                self.canvas.fill_rect(rc).unwrap();
+            }
+        }
+
+        self.canvas.present();
     }
 
     pub fn update_debug_window(&mut self, ppu: &PPU) {

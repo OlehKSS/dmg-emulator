@@ -253,6 +253,7 @@ impl Emulator {
 
                 if prev_frame != emu.ppu.get_current_frame() {
                     prev_frame = emu.ppu.get_current_frame();
+                    gui.update_window(&emu.ppu);
                     gui.update_debug_window(&emu.ppu);
                 }
 
