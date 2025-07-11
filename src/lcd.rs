@@ -51,8 +51,8 @@ pub struct LCD {
     win_y: u8,
 
     pub bg_colors: [u32; 4],
-    sp0_colors: [u32; 4],
-    sp1_colors: [u32; 4],
+    pub sp0_colors: [u32; 4],
+    pub sp1_colors: [u32; 4],
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -136,6 +136,14 @@ impl LCD {
             0x8000
         } else {
             0x8800
+        }
+    }
+
+    pub fn get_sprite_height(&self) -> u8 {
+        if self.lcdc.contains(LcdControl::OBJ_SIZE) {
+            16
+        } else {
+            8
         }
     }
 

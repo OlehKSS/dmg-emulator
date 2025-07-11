@@ -17,6 +17,7 @@ bitflags!(
 /// DMG palette [Non CGB Mode only]: 0 = OBP0, 1 = OBP1
 /// Bank [CGB Mode Only]: 0 = Fetch tile from VRAM bank 0, 1 = Fetch tile from VRAM bank 1
 /// CGB palette [CGB Mode Only]: Which of OBP0–7 to use
+    #[derive(Clone, Copy)]
     pub struct SpriteFlags: u8 {
         const PRIORITY = 0b1000_0000;
         const Y_FLIP = 0b0100_0000;
@@ -96,7 +97,7 @@ pub const XRES: usize = 160;
 const TARGET_FRAME_TIME: Duration = Duration::from_millis(16);
 
 pub struct PPU {
-    oam_ram: [u8; OAM_SIZE],
+    oam_ram: [Sprite; OAM_SIZE / 4],
     vram: [u8; VRAM_SIZE], // 8KB
     lcd: LCD,
     timer: Instant,
@@ -107,6 +108,8 @@ pub struct PPU {
     line_ticks: u32,
     video_buffer: [u32; YRES * XRES],
     pixel_fifo: PixelFifo,
+    line_sprites: VecDeque<Sprite>,
+    fetched_entries: Vec<Sprite>,
 }
 
 impl PPU {
@@ -115,7 +118,7 @@ impl PPU {
         lcd.set_mode(LcdMode::OAM);
 
         PPU {
-            oam_ram: [0; OAM_SIZE],
+            oam_ram: core::array::from_fn(|_| Sprite::new()),
             vram: [0; VRAM_SIZE],
             lcd,
             timer: Instant::now(),
@@ -126,6 +129,8 @@ impl PPU {
             line_ticks: 0,
             video_buffer: [0; YRES * XRES],
             pixel_fifo: PixelFifo::new(),
+            line_sprites: VecDeque::new(),
+            fetched_entries: Vec::new(),
         }
     }
 
@@ -140,7 +145,18 @@ impl PPU {
         } else {
             address as usize
         };
-        self.oam_ram[oam_address]
+
+        let sprite_index = oam_address / 4;
+        let sprite_field = oam_address % 4;
+        let sprite = &self.oam_ram[sprite_index];
+
+        match sprite_field {
+            0 => sprite.y,
+            1 => sprite.x,
+            2 => sprite.tile_index,
+            3 => sprite.flags.bits(),
+            _ => panic!("Invalid sprite field index {sprite_field}"),
+        }
     }
 
     pub fn oam_write(&mut self, address: u16, value: u8) {
@@ -149,7 +165,18 @@ impl PPU {
         } else {
             address as usize
         };
-        self.oam_ram[oam_address] = value;
+
+        let sprite_index = oam_address / 4;
+        let sprite_field = oam_address % 4;
+        let sprite = &mut self.oam_ram[sprite_index];
+
+        match sprite_field {
+            0 => sprite.y = value,
+            1 => sprite.x = value,
+            2 => sprite.tile_index = value,
+            3 => sprite.flags = SpriteFlags::from_bits_truncate(value),
+            _ => panic!("Invalid sprite field index {sprite_field}"),
+        };
     }
 
     pub fn vram_read(&self, address: u16) -> u8 {
@@ -186,6 +213,38 @@ impl PPU {
         }
     }
 
+    fn load_line_sprites(&mut self) {
+        let ly = self.lcd.ly;
+        let sprite_height = self.lcd.get_sprite_height();
+
+        for sprite in &self.oam_ram {
+            if sprite.x == 0 {
+                // Not visible
+                continue;
+            }
+
+            if self.line_sprites.len() >= 10 {
+                // Max 10 sprites per line
+                break;
+            }
+
+            if sprite.y <= (ly + 16) && (sprite.y + sprite_height) > (ly + 16) {
+                // This sprite is on the current line
+
+                if self.line_sprites.is_empty() || self.line_sprites.front().unwrap().x > sprite.x {
+                    self.line_sprites.push_front(sprite.clone());
+                    continue;
+                }
+
+                for i in 0..self.line_sprites.len() {
+                    if self.line_sprites[i].x > sprite.x {
+                        self.line_sprites.insert(i, sprite.clone());
+                    }
+                }
+            }
+        }
+    }
+
     fn tick_oam(&mut self) {
         if self.line_ticks >= 80 {
             self.lcd.set_mode(LcdMode::XFER);
@@ -195,6 +254,12 @@ impl PPU {
             self.pixel_fifo.fetch_x = 0;
             self.pixel_fifo.pushed_x = 0;
             self.pixel_fifo.fifo_x = 0;
+        }
+
+        if self.line_ticks == 1 {
+            // Read all sprites on the first tick, not as in hardware
+            self.line_sprites.clear();
+            self.load_line_sprites();
         }
     }
 
@@ -277,9 +342,53 @@ impl PPU {
         self.pipeline_push_pixel();
     }
 
+    fn pipeline_load_sprite_tile(&mut self) {
+        for entry in &self.line_sprites {
+            let sp_x = (entry.x - 8) + (self.lcd.scroll_x % 8);
+
+            if (sp_x >= self.pixel_fifo.fetch_x && sp_x < (self.pixel_fifo.fetch_x + 8))
+                || ((sp_x + 8) >= self.pixel_fifo.fetch_x
+                    && (sp_x + 8) < (self.pixel_fifo.fetch_x + 8))
+            {
+                self.fetched_entries.push(entry.clone());
+            }
+
+            if self.fetched_entries.len() >= 3 {
+                // Max checking 3 sprites per pixel
+                break;
+            }
+        }
+    }
+
+    fn pipeline_load_sprite_data(&mut self, offset: usize) {
+        let ly = self.lcd.ly;
+        let sprite_height = self.lcd.get_sprite_height();
+
+        for i in 0..self.fetched_entries.len() {
+            let entry = &self.fetched_entries[i];
+            let mut ty = ((ly + 16) - entry.y) * 2;
+
+            if entry.flags.contains(SpriteFlags::Y_FLIP) {
+                ty = (2 * sprite_height - 2) - ty;
+            }
+
+            let mut tile_index = entry.tile_index as u16;
+
+            if sprite_height == 16 {
+                tile_index &= !1; // Remove last bit
+            }
+
+            let address = 0x8000 + (tile_index * 16) + (ty as u16) + (offset as u16);
+
+            self.pixel_fifo.fetch_entry_data[(i * 2) + offset] = self.vram_read(address);
+        }
+    }
+
     fn pipeline_fetch(&mut self) {
         match self.pixel_fifo.fetch_state {
             FetchState::Tile => {
+                self.fetched_entries.clear();
+
                 if self.lcd.control_contains(LcdControl::BG_WINDOW_ENABLE) {
                     let address = self.lcd.get_bg_map_area()
                         + ((self.pixel_fifo.map_x as u16) / 8)
@@ -287,9 +396,16 @@ impl PPU {
                     self.pixel_fifo.bgw_fetch_data[0] = self.vram_read(address);
 
                     if self.lcd.get_bgw_data_area() == 0x8800 {
-                        // Why do we add 128 here?
-                        self.pixel_fifo.bgw_fetch_data[0] = self.pixel_fifo.bgw_fetch_data[0] + 128;
+                        // TODO: Does wrapping_add() here indicate an error?
+                        self.pixel_fifo.bgw_fetch_data[0] =
+                            self.pixel_fifo.bgw_fetch_data[0].wrapping_add(128);
                     }
+                }
+
+                if self.lcd.control_contains(LcdControl::OBJ_ENABLE)
+                    && !self.line_sprites.is_empty()
+                {
+                    self.pipeline_load_sprite_tile();
                 }
 
                 self.pixel_fifo.fetch_state = FetchState::DataLow;
@@ -300,6 +416,9 @@ impl PPU {
                     + ((self.pixel_fifo.bgw_fetch_data[0] as u16) * 16)
                     + (self.pixel_fifo.tile_y as u16);
                 self.pixel_fifo.bgw_fetch_data[1] = self.vram_read(address);
+
+                self.pipeline_load_sprite_data(0);
+
                 self.pixel_fifo.fetch_state = FetchState::DataHigh;
             }
             FetchState::DataHigh => {
@@ -308,6 +427,9 @@ impl PPU {
                     + (self.pixel_fifo.tile_y as u16)
                     + 1;
                 self.pixel_fifo.bgw_fetch_data[2] = self.vram_read(address);
+
+                self.pipeline_load_sprite_data(1);
+
                 self.pixel_fifo.fetch_state = FetchState::Idle;
             }
             FetchState::Idle => {
@@ -350,7 +472,15 @@ impl PPU {
             let lo = ((self.pixel_fifo.bgw_fetch_data[1] & (1 << bit)) != 0) as u8;
             let hi = ((self.pixel_fifo.bgw_fetch_data[2] & (1 << bit)) != 0) as u8;
             let color_index = ((hi << 1) | lo) as usize;
-            let color = self.lcd.bg_colors[color_index];
+            let mut color = self.lcd.bg_colors[color_index];
+
+            if !self.lcd.control_contains(LcdControl::BG_WINDOW_ENABLE) {
+                color = self.lcd.bg_colors[0];
+            }
+
+            if self.lcd.control_contains(LcdControl::OBJ_ENABLE) {
+                color = self.fetch_sprite_pixels(color_index, color);
+            }
 
             if x >= 0 {
                 self.pixel_fifo.fifo.push_back(color);
@@ -360,6 +490,54 @@ impl PPU {
 
         true
     }
+
+    fn fetch_sprite_pixels(&self, bg_color_index: usize, default_color: u32) -> u32 {
+        let mut color = default_color;
+        for i in 0..self.fetched_entries.len() {
+            let entry = &self.fetched_entries[i];
+            let sp_x = (entry.x - 8) + (self.lcd.scroll_x % 8);
+
+            if (sp_x + 8) < self.pixel_fifo.fifo_x {
+                // Passed pixel point already
+                continue;
+            }
+            // TODO: Is wrapping_sub correct?
+            let offset = self.pixel_fifo.fifo_x.wrapping_sub(sp_x);
+
+            if offset > 7 {
+                // Out of bounds
+                continue;
+            }
+
+            let mut bit = 7 - offset;
+
+            if entry.flags.contains(SpriteFlags::X_FLIP) {
+                bit = offset;
+            }
+
+            let lo = ((self.pixel_fifo.fetch_entry_data[i * 2] & (1 << bit)) != 0) as u8;
+            let hi = ((self.pixel_fifo.fetch_entry_data[i * 2 + 1] & (1 << bit)) != 0) as u8;
+            let color_index = ((hi << 1) | lo) as usize;
+            let bg_priority = entry.flags.contains(SpriteFlags::PRIORITY);
+
+            if color_index == 0 {
+                // Transparent
+                continue;
+            }
+
+            if !bg_priority || bg_color_index == 0 {
+                color = if entry.flags.contains(SpriteFlags::DMG_PALETTE) {
+                    self.lcd.sp1_colors[color_index]
+                } else {
+                    self.lcd.sp0_colors[color_index]
+                };
+
+                break;
+            }
+        }
+
+        color
+    }
 }
 
 impl Default for PPU {
@@ -368,9 +546,10 @@ impl Default for PPU {
     }
 }
 
+#[derive(Clone)]
 struct Sprite {
-    y_pos: u8,
-    x_pos: u8,
+    y: u8,
+    x: u8,
     tile_index: u8,
     flags: SpriteFlags,
 }
@@ -378,8 +557,8 @@ struct Sprite {
 impl Sprite {
     pub fn new() -> Self {
         Sprite {
-            y_pos: 0,
-            x_pos: 0,
+            y: 0,
+            x: 0,
             tile_index: 0,
             flags: SpriteFlags::empty(),
         }
