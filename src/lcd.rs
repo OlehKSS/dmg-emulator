@@ -1,10 +1,12 @@
+use crate::ppu::YRES;
+
 use super::bus::HardwareRegister;
-use super::interrupts::{InterruptFlag, InterruptRequest};
 use bitflags::bitflags;
 
 pub static DEFAULT_COLORS: [u32; 4] = [0xFFFFFFFF, 0xFFAAAAAA, 0xFF555555, 0xFF000000];
 
 bitflags!(
+    #[derive(Debug)]
     pub struct LcdControl : u8 {
         const LCD_PPU_ENABLE = 0b1000_0000;
         const WINDOW_TILE_MAP_AREA = 0b0100_0000;
@@ -38,8 +40,8 @@ bitflags!(
 );
 
 pub struct LCD {
-    lcdc: LcdControl,
-    lcds: LcdStatus,
+    pub lcdc: LcdControl,
+    pub lcds: LcdStatus,
     pub scroll_x: u8,
     pub scroll_y: u8,
     pub ly: u8,
@@ -47,8 +49,8 @@ pub struct LCD {
     dma: u8,
     bg_palette: u8,
     obj_palette: [u8; 2],
-    win_x: u8,
-    win_y: u8,
+    pub win_x: u8,
+    pub win_y: u8,
 
     pub bg_colors: [u32; 4],
     pub sp0_colors: [u32; 4],
@@ -131,6 +133,14 @@ impl LCD {
         }
     }
 
+    pub fn get_win_map_area(&self) -> u16 {
+        if self.lcdc.contains(LcdControl::WINDOW_TILE_MAP_AREA) {
+            0x9C00
+        } else {
+            0x9800
+        }
+    }
+
     pub fn get_bgw_data_area(&self) -> u16 {
         if self.lcdc.contains(LcdControl::BG_WINDOW_TILE_DATA_AREA) {
             0x8000
@@ -144,28 +154,6 @@ impl LCD {
             16
         } else {
             8
-        }
-    }
-
-    pub fn status_contains(&self, other: LcdStatus) -> bool {
-        self.lcds.contains(other)
-    }
-
-    pub fn control_contains(&self, other: LcdControl) -> bool {
-        self.lcdc.contains(other)
-    }
-
-    pub fn increment_ly<I: InterruptRequest>(&mut self, ctx: &mut I) {
-        self.ly = self.ly.wrapping_add(1);
-
-        if self.ly == self.lyc {
-            self.lcds.insert(LcdStatus::LYC_EQUAL_LY);
-
-            if self.lcds.contains(LcdStatus::LYC_INT_SELECT) {
-                ctx.request_interrupt(InterruptFlag::LCD);
-            }
-        } else {
-            self.lcds.remove(LcdStatus::LYC_EQUAL_LY);
         }
     }
 
@@ -214,6 +202,12 @@ impl LCD {
             HardwareRegister::WX => self.win_x = value,
             _ => panic!("Invalid LCD register 0x{:04X}.", address as u8),
         }
+    }
+
+    pub fn is_window_visible(&self) -> bool {
+        self.lcdc.contains(LcdControl::WINDOW_ENABLE)
+            && self.win_x <= 166
+            && self.win_y < (YRES as u8)
     }
 
     fn update_palette(&mut self, palette: Palette, color_indices: u8) {

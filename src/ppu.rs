@@ -110,6 +110,7 @@ pub struct PPU {
     pixel_fifo: PixelFifo,
     line_sprites: VecDeque<Sprite>,
     fetched_entries: Vec<Sprite>,
+    window_line: u8,
 }
 
 impl PPU {
@@ -131,6 +132,7 @@ impl PPU {
             pixel_fifo: PixelFifo::new(),
             line_sprites: VecDeque::new(),
             fetched_entries: Vec::new(),
+            window_line: 0,
         }
     }
 
@@ -271,7 +273,7 @@ impl PPU {
 
             self.lcd.set_mode(LcdMode::HBLANK);
 
-            if self.lcd.status_contains(LcdStatus::HBLANK_INT_SELECT) {
+            if self.lcd.lcds.contains(LcdStatus::HBLANK_INT_SELECT) {
                 ctx.request_interrupt(InterruptFlag::LCD);
             }
         }
@@ -279,11 +281,12 @@ impl PPU {
 
     fn tick_vblank<I: InterruptRequest>(&mut self, ctx: &mut I) {
         if self.line_ticks >= TICKS_PER_LINE {
-            self.lcd.increment_ly(ctx);
+            self.increment_ly(ctx);
 
             if (self.lcd.ly as u32) >= LINES_PER_FRAME {
                 self.lcd.set_mode(LcdMode::OAM);
                 self.lcd.ly = 0;
+                self.window_line = 0;
             }
 
             self.line_ticks = 0;
@@ -292,14 +295,14 @@ impl PPU {
 
     fn tick_hblank<I: InterruptRequest>(&mut self, ctx: &mut I) {
         if self.line_ticks >= TICKS_PER_LINE {
-            self.lcd.increment_ly(ctx);
+            self.increment_ly(ctx);
 
             if (self.lcd.ly as usize) >= YRES {
                 self.lcd.set_mode(LcdMode::VBLANK);
 
                 ctx.request_interrupt(InterruptFlag::VBLANK);
 
-                if self.lcd.status_contains(LcdStatus::VBLANK_INT_SELECT) {
+                if self.lcd.lcds.contains(LcdStatus::VBLANK_INT_SELECT) {
                     ctx.request_interrupt(InterruptFlag::LCD);
                 }
 
@@ -384,12 +387,34 @@ impl PPU {
         }
     }
 
+    fn pipeline_load_window_tile(&mut self) {
+        if !self.lcd.is_window_visible() {
+            return;
+        }
+
+        if (self.pixel_fifo.fetch_x + 7) >= self.lcd.win_x
+            && (self.pixel_fifo.fetch_x + 7) < (self.lcd.win_x + (YRES as u8) + 14)
+            && self.lcd.ly >= self.lcd.win_y
+            && self.lcd.ly < (self.lcd.win_y + (XRES as u8))
+        {
+            let window_tile_y = (self.window_line as u16) / 8;
+            let address = self.lcd.get_win_map_area()
+                + ((self.pixel_fifo.fetch_x + 7 - self.lcd.win_x) as u16)
+                + (window_tile_y * 32);
+            self.pixel_fifo.bgw_fetch_data[0] = self.vram_read(address);
+
+            if self.lcd.get_bgw_data_area() == 0x8800 {
+                self.pixel_fifo.bgw_fetch_data[0] += 128;
+            }
+        }
+    }
+
     fn pipeline_fetch(&mut self) {
         match self.pixel_fifo.fetch_state {
             FetchState::Tile => {
                 self.fetched_entries.clear();
 
-                if self.lcd.control_contains(LcdControl::BG_WINDOW_ENABLE) {
+                if self.lcd.lcdc.contains(LcdControl::BG_WINDOW_ENABLE) {
                     let address = self.lcd.get_bg_map_area()
                         + ((self.pixel_fifo.map_x as u16) / 8)
                         + (((self.pixel_fifo.map_y as u16) / 8) * 32);
@@ -400,11 +425,11 @@ impl PPU {
                         self.pixel_fifo.bgw_fetch_data[0] =
                             self.pixel_fifo.bgw_fetch_data[0].wrapping_add(128);
                     }
+
+                    self.pipeline_load_window_tile();
                 }
 
-                if self.lcd.control_contains(LcdControl::OBJ_ENABLE)
-                    && !self.line_sprites.is_empty()
-                {
+                if self.lcd.lcdc.contains(LcdControl::OBJ_ENABLE) && !self.line_sprites.is_empty() {
                     self.pipeline_load_sprite_tile();
                 }
 
@@ -474,11 +499,11 @@ impl PPU {
             let color_index = ((hi << 1) | lo) as usize;
             let mut color = self.lcd.bg_colors[color_index];
 
-            if !self.lcd.control_contains(LcdControl::BG_WINDOW_ENABLE) {
+            if !self.lcd.lcdc.contains(LcdControl::BG_WINDOW_ENABLE) {
                 color = self.lcd.bg_colors[0];
             }
 
-            if self.lcd.control_contains(LcdControl::OBJ_ENABLE) {
+            if self.lcd.lcdc.contains(LcdControl::OBJ_ENABLE) {
                 color = self.fetch_sprite_pixels(color_index, color);
             }
 
@@ -537,6 +562,27 @@ impl PPU {
         }
 
         color
+    }
+
+    pub fn increment_ly<I: InterruptRequest>(&mut self, ctx: &mut I) {
+        if self.lcd.is_window_visible()
+            && self.lcd.ly >= self.lcd.win_y
+            && self.lcd.ly < (self.lcd.win_y + (YRES as u8))
+        {
+            self.window_line += 1;
+        }
+
+        self.lcd.ly = self.lcd.ly.wrapping_add(1);
+
+        if self.lcd.ly == self.lcd.lyc {
+            self.lcd.lcds.insert(LcdStatus::LYC_EQUAL_LY);
+
+            if self.lcd.lcds.contains(LcdStatus::LYC_INT_SELECT) {
+                ctx.request_interrupt(InterruptFlag::LCD);
+            }
+        } else {
+            self.lcd.lcds.remove(LcdStatus::LYC_EQUAL_LY);
+        }
     }
 }
 
