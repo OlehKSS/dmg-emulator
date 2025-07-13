@@ -2,7 +2,7 @@ use bitflags::bitflags;
 
 bitflags!(
     pub struct InterruptFlag: u8 {
-        const VBLANK = 0b0;
+        const VBLANK = 0b1;
         const LCD = 0b10;
         const TIMER = 0b100;
         const SERIAL = 0b1000;
@@ -43,7 +43,7 @@ impl Default for InterruptLine {
 
 impl InterruptRequest for InterruptLine {
     fn request_interrupt(&mut self, f: InterruptFlag) {
-        self.interrupt_enable |= f;
+        self.interrupt_flag |= f;
     }
 }
 

@@ -450,6 +450,7 @@ impl CPU {
         let interrupt = interrupt.highest_priority();
 
         self.ime = false;
+        self.mode = CpuMode::Running;
         self.ctx.lock().unwrap().ack_interrupt(&interrupt);
 
         self.push_value(self.registers.pc);
