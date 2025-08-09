@@ -96,6 +96,7 @@ pub const XRES: usize = 160;
 // Target frame rate is 60 Hz
 const TARGET_FRAME_TIME: Duration = Duration::from_millis(16);
 
+// window_line window line to draw
 pub struct PPU {
     oam_ram: [Sprite; OAM_SIZE / 4],
     vram: [u8; VRAM_SIZE], // 8KB
@@ -399,12 +400,15 @@ impl PPU {
         {
             let window_tile_y = (self.window_line as u16) / 8;
             let address = self.lcd.get_win_map_area()
-                + ((self.pixel_fifo.fetch_x + 7 - self.lcd.win_x) as u16)
+                + (((self.pixel_fifo.fetch_x + 7 - self.lcd.win_x) / 8) as u16)
                 + (window_tile_y * 32);
             self.pixel_fifo.bgw_fetch_data[0] = self.vram_read(address);
 
             if self.lcd.get_bgw_data_area() == 0x8800 {
-                self.pixel_fifo.bgw_fetch_data[0] += 128;
+                // Load from the second tile set data
+                // Here we convert from negative to positive indices, -128 is 0
+                self.pixel_fifo.bgw_fetch_data[0] =
+                    self.pixel_fifo.bgw_fetch_data[0].wrapping_add(128);
             }
         }
     }
@@ -421,7 +425,8 @@ impl PPU {
                     self.pixel_fifo.bgw_fetch_data[0] = self.vram_read(address);
 
                     if self.lcd.get_bgw_data_area() == 0x8800 {
-                        // TODO: Does wrapping_add() here indicate an error?
+                        // Load from the second tile set data
+                        // Here we convert from negative to positive indices, -128 is 0
                         self.pixel_fifo.bgw_fetch_data[0] =
                             self.pixel_fifo.bgw_fetch_data[0].wrapping_add(128);
                     }
