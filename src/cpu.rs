@@ -613,6 +613,10 @@ impl CPU {
     }
 
     fn ret(&mut self) {
+        if self.instruction.cond.is_some() {
+            self.ctx.lock().unwrap().tick_cycle();
+        }
+
         if self.check_flags() {
             self.registers.pc = self.pop_value();
             self.ctx.lock().unwrap().tick_cycle();
