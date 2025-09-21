@@ -465,6 +465,10 @@ impl CPU {
     fn decrement(&mut self) {
         let reg1 = self.instruction.reg1.unwrap();
 
+        if reg1.is_16bit() {
+            self.ctx.lock().unwrap().tick_cycle();
+        }
+
         if reg1.is_16bit() && !self.dest_is_mem {
             // Does not change flags
             let result = self.fetched_data.wrapping_sub(1);
