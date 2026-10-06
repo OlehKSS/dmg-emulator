@@ -217,8 +217,8 @@ impl PPU {
     }
 
     fn load_line_sprites(&mut self) {
-        let ly = self.lcd.ly;
-        let sprite_height = self.lcd.get_sprite_height();
+        let ly = self.lcd.ly as u16;
+        let sprite_height = self.lcd.get_sprite_height() as u16;
 
         for sprite in &self.oam_ram {
             if sprite.x == 0 {
@@ -231,7 +231,9 @@ impl PPU {
                 break;
             }
 
-            if sprite.y <= (ly + 16) && (sprite.y + sprite_height) > (ly + 16) {
+            let sprite_y = sprite.y as u16;
+
+            if sprite_y <= (ly + 16) && (sprite_y + sprite_height) > (ly + 16) {
                 // This sprite is on the current line
 
                 if self.line_sprites.is_empty() || self.line_sprites.front().unwrap().x > sprite.x {
@@ -239,10 +241,19 @@ impl PPU {
                     continue;
                 }
 
+                let mut inserted_sprite = false;
+
                 for i in 0..self.line_sprites.len() {
                     if self.line_sprites[i].x > sprite.x {
                         self.line_sprites.insert(i, sprite.clone());
+                        inserted_sprite = true;
+                        break;
                     }
+                }
+
+                if !inserted_sprite {
+                    // Append if sprite's x coordinate is larger than all existing elements
+                    self.line_sprites.push_back(sprite.clone());
                 }
             }
         }
@@ -334,9 +345,9 @@ impl PPU {
     }
 
     fn pipeline_process(&mut self) {
-        self.pixel_fifo.map_y = self.lcd.ly + self.lcd.scroll_y;
-        self.pixel_fifo.map_x = self.pixel_fifo.fetch_x + self.lcd.scroll_x;
-        self.pixel_fifo.tile_y = ((self.lcd.ly + self.lcd.scroll_y) % 8) * 2;
+        self.pixel_fifo.map_y = self.lcd.ly.wrapping_add(self.lcd.scroll_y);
+        self.pixel_fifo.map_x = self.pixel_fifo.fetch_x.wrapping_add(self.lcd.scroll_x);
+        self.pixel_fifo.tile_y = ((self.lcd.ly.wrapping_add(self.lcd.scroll_y)) % 8) * 2;
 
         if (self.line_ticks & 1) == 0 {
             // Even line
