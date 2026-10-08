@@ -90,20 +90,23 @@ impl GUI {
 
     pub fn handle_events(&self) -> GuiAction {
         let mut event_pump = self.sdl_context.event_pump().unwrap();
-        let mut gui_event = GuiAction::Continue;
 
         for event in event_pump.poll_iter() {
-            gui_event = match event {
+            match event {
                 Event::Quit { .. }
+                | Event::Window {
+                    win_event: sdl2::event::WindowEvent::Close,
+                    ..
+                }
                 | Event::KeyDown {
                     keycode: Some(Keycode::Escape),
                     ..
-                } => GuiAction::Exit,
-                _ => GuiAction::Continue,
-            };
+                } => return GuiAction::Exit,
+                _ => {}
+            }
         }
 
-        gui_event
+        GuiAction::Continue
     }
 
     pub fn update_window(&mut self, video_buffer: &[u32; XRES * YRES]) {
