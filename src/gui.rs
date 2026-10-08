@@ -1,7 +1,9 @@
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
-use sdl2::pixels::Color;
+use sdl2::pixels::{Color, PixelFormatEnum};
 use sdl2::rect::Rect;
+use sdl2::render::{Canvas, TextureCreator};
+use sdl2::video::{Window, WindowContext};
 
 use super::lcd::DEFAULT_COLORS;
 use super::ppu::{PPU, XRES, YRES};
@@ -16,8 +18,9 @@ pub enum GuiAction {
 pub struct GUI {
     sdl_context: sdl2::Sdl,
     // Canvas to keeps windows open
-    canvas: sdl2::render::Canvas<sdl2::video::Window>,
-    debug_canvas: Option<sdl2::render::Canvas<sdl2::video::Window>>,
+    canvas: Canvas<Window>,
+    texture_creator: TextureCreator<WindowContext>,
+    debug_canvas: Option<Canvas<Window>>,
 }
 
 impl Default for GUI {
@@ -27,11 +30,9 @@ impl Default for GUI {
 }
 
 impl GUI {
-    const SCREEN_WIDTH: u32 = (XRES as u32) / 8;
-    const SCREEN_HEIGHT: u32 = (YRES as u32) / 8;
     const DEBUG_SCREEN_WIDTH: u32 = 16;
     const DEBUG_SCREEN_HEIGHT: u32 = 24;
-    const SCALE: u32 = 5;
+    const SCALE: u32 = 4;
 
     pub fn new(debug: bool) -> Self {
         let sdl_context = sdl2::init().unwrap();
@@ -39,8 +40,8 @@ impl GUI {
         let window = video_subsystem
             .window(
                 "GameBoy Emulator",
-                Self::SCREEN_WIDTH * 24 * Self::SCALE,
-                Self::SCREEN_HEIGHT * 24 * Self::SCALE,
+                (XRES as u32) * Self::SCALE,
+                (YRES as u32) * Self::SCALE,
             )
             .position_centered()
             .build()
@@ -53,19 +54,16 @@ impl GUI {
         canvas.clear();
         canvas.present();
 
+        let texture_creator = canvas.texture_creator();
+
         if debug {
             let debug_window = video_subsystem
                 .window(
                     "Debug Info",
-                    Self::DEBUG_SCREEN_WIDTH * 24 * Self::SCALE
-                        + Self::DEBUG_SCREEN_WIDTH * Self::SCALE,
-                    Self::DEBUG_SCREEN_HEIGHT * 24 * Self::SCALE
-                        + Self::DEBUG_SCREEN_HEIGHT * Self::SCALE,
+                    Self::DEBUG_SCREEN_WIDTH * 9 * Self::SCALE,
+                    Self::DEBUG_SCREEN_HEIGHT * 9 * Self::SCALE,
                 )
-                .position(
-                    posx + (((Self::SCREEN_WIDTH + 1) * 8 * Self::SCALE) as i32),
-                    posy,
-                )
+                .position(posx + (((XRES as u32) * Self::SCALE) as i32) + 20, posy)
                 .build()
                 .unwrap();
 
@@ -77,6 +75,7 @@ impl GUI {
             return GUI {
                 sdl_context,
                 canvas,
+                texture_creator,
                 debug_canvas: Some(debug_canvas),
             };
         }
@@ -84,6 +83,7 @@ impl GUI {
         GUI {
             sdl_context,
             canvas,
+            texture_creator,
             debug_canvas: None,
         }
     }
@@ -106,20 +106,25 @@ impl GUI {
         gui_event
     }
 
-    pub fn update_window(&mut self, ppu: &PPU) {
-        for line_num in 0..(YRES as i32) {
-            for x in 0..(XRES as i32) {
-                let x_rc = x * (Self::SCALE as i32);
-                let y_rc = line_num * (Self::SCALE as i32);
-                let rc = Rect::new(x_rc, y_rc, Self::SCALE, Self::SCALE);
-                let pixel_index = (x as usize) + ((line_num as usize) * XRES);
-                let color = color_from_u32(ppu.video_buffer_read(pixel_index));
+    pub fn update_window(&mut self, video_buffer: &[u32; XRES * YRES]) {
+        let mut texture = self
+            .texture_creator
+            .create_texture_streaming(PixelFormatEnum::ARGB8888, XRES as u32, YRES as u32)
+            .unwrap();
 
-                self.canvas.set_draw_color(color);
-                self.canvas.fill_rect(rc).unwrap();
-            }
+        let mut pixel_data = [0u8; XRES * YRES * 4];
+
+        for (i, color) in video_buffer.iter().enumerate() {
+            let offset = i * 4;
+            pixel_data[offset] = (color & 0xFF) as u8; // b
+            pixel_data[offset + 1] = ((color >> 8) & 0xFF) as u8; // g
+            pixel_data[offset + 2] = ((color >> 16) & 0xFF) as u8; // r
+            pixel_data[offset + 3] = ((color >> 24) & 0xFF) as u8; // a
         }
 
+        texture.update(None, &pixel_data, XRES * 4).unwrap();
+        self.canvas.clear();
+        self.canvas.copy(&texture, None, None).unwrap();
         self.canvas.present();
     }
 

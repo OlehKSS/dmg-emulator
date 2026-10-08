@@ -11,7 +11,7 @@ use super::cpu::*;
 use super::dma::DMA;
 use super::gui::{GUI, GuiAction};
 use super::interrupts::InterruptLine;
-use super::ppu::PPU;
+use super::ppu::{PPU, XRES, YRES};
 use super::timer::Timer;
 
 /// The main emulator state.
@@ -240,6 +240,7 @@ impl Emulator {
         });
 
         let mut prev_frame: u32 = 0;
+        let mut video_buffer = [0u32; XRES * YRES];
 
         loop {
             let action: GuiAction = gui.handle_events();
@@ -248,18 +249,31 @@ impl Emulator {
                 return Ok(());
             }
 
+            let mut frame_ready = false;
+
             {
-                let emu = emu_mutex.lock().unwrap();
+                let emu: std::sync::MutexGuard<'_, Emulator> = emu_mutex.lock().unwrap();
 
                 if prev_frame != emu.ppu.get_current_frame() {
                     prev_frame = emu.ppu.get_current_frame();
-                    gui.update_window(&emu.ppu);
-                    gui.update_debug_window(&emu.ppu);
+                    // Quickly copy pixel data while holding lock
+                    for (i, pixel_color) in video_buffer.iter_mut().enumerate() {
+                        *pixel_color = emu.ppu.video_buffer_read(i);
+                    }
+                    frame_ready = true;
                 }
 
                 // For testing
                 if !emu.debug_msg.is_empty() && emu.debug_msg.contains("Passed") {
                     panic!("Debug message: {}", emu.debug_msg);
+                }
+            }
+
+            if frame_ready {
+                gui.update_window(&video_buffer);
+                {
+                    let emu = emu_mutex.lock().unwrap();
+                    gui.update_debug_window(&emu.ppu);
                 }
             }
 
