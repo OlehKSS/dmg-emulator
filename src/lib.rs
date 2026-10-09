@@ -3,6 +3,7 @@ pub mod cart;
 pub mod cpu;
 pub mod dma;
 pub mod emu;
+pub mod gamepad;
 pub mod gui;
 pub mod interrupts;
 pub mod lcd;

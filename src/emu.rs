@@ -9,6 +9,7 @@ use super::bus::{HardwareRegister, MemoryBus};
 use super::cart::Cartridge;
 use super::cpu::*;
 use super::dma::DMA;
+use super::gamepad::Gamepad;
 use super::gui::{GUI, GuiAction};
 use super::interrupts::InterruptLine;
 use super::ppu::{PPU, XRES, YRES};
@@ -31,6 +32,7 @@ pub struct Emulator {
     dma: DMA,
     ppu: PPU,
     timer: Timer,
+    gamepad: Gamepad,
     debug_msg: String,
 }
 
@@ -111,6 +113,9 @@ impl CpuContext for Emulator {
                     Some(HardwareRegister::IE) => {
                         self.interrupts.interrupt_enable = InterruptFlag::from_bits_truncate(value);
                     }
+                    Some(HardwareRegister::P1_JOYP) => {
+                        self.gamepad.set_selection(value);
+                    }
                     _ => println!("Unimplemented hardware register write ${:04X}.", address),
                 };
             }
@@ -180,6 +185,7 @@ impl CpuContext for Emulator {
                     | Some(HardwareRegister::WY)
                     | Some(HardwareRegister::WX) => self.ppu.lcd_read(register.unwrap()),
                     Some(HardwareRegister::IE) => self.interrupts.interrupt_enable.bits(),
+                    Some(HardwareRegister::P1_JOYP) => self.gamepad.get_output(),
                     _ => {
                         println!("Unimplemented hardware register read ${:02X}.", address);
                         self.bus.read(address)
@@ -209,6 +215,7 @@ impl Emulator {
             dma: DMA::new(),
             ppu: PPU::new(),
             timer: Timer::new(),
+            gamepad: Gamepad::new(),
             debug_msg: String::new(),
         }
     }
@@ -252,7 +259,7 @@ impl Emulator {
             let mut frame_ready = false;
 
             {
-                let emu: std::sync::MutexGuard<'_, Emulator> = emu_mutex.lock().unwrap();
+                let mut emu: std::sync::MutexGuard<'_, Emulator> = emu_mutex.lock().unwrap();
 
                 if prev_frame != emu.ppu.get_current_frame() {
                     prev_frame = emu.ppu.get_current_frame();
@@ -261,6 +268,12 @@ impl Emulator {
                         *pixel_color = emu.ppu.video_buffer_read(i);
                     }
                     frame_ready = true;
+                }
+
+                match action {
+                    GuiAction::KeyDown(key) => emu.gamepad.key_down(key),
+                    GuiAction::KeyUp(key) => emu.gamepad.key_up(key),
+                    _ => (),
                 }
 
                 // For testing

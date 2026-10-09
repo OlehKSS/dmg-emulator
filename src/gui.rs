@@ -5,6 +5,7 @@ use sdl2::rect::Rect;
 use sdl2::render::{Canvas, TextureCreator};
 use sdl2::video::{Window, WindowContext};
 
+use super::gamepad::Key;
 use super::lcd::DEFAULT_COLORS;
 use super::ppu::{PPU, XRES, YRES};
 
@@ -12,6 +13,8 @@ use super::ppu::{PPU, XRES, YRES};
 pub enum GuiAction {
     Exit,
     Continue,
+    KeyDown(Key),
+    KeyUp(Key),
 }
 
 #[allow(dead_code)]
@@ -102,7 +105,71 @@ impl GUI {
                     keycode: Some(Keycode::Escape),
                     ..
                 } => return GuiAction::Exit,
-                _ => {}
+                Event::KeyDown {
+                    keycode: Some(Keycode::Z),
+                    ..
+                } => return GuiAction::KeyDown(Key::B),
+                Event::KeyDown {
+                    keycode: Some(Keycode::X),
+                    ..
+                } => return GuiAction::KeyDown(Key::A),
+                Event::KeyDown {
+                    keycode: Some(Keycode::Return),
+                    ..
+                } => return GuiAction::KeyDown(Key::Start),
+                Event::KeyDown {
+                    keycode: Some(Keycode::Tab),
+                    ..
+                } => return GuiAction::KeyDown(Key::Select),
+                Event::KeyDown {
+                    keycode: Some(Keycode::Up),
+                    ..
+                } => return GuiAction::KeyDown(Key::Up),
+                Event::KeyDown {
+                    keycode: Some(Keycode::Down),
+                    ..
+                } => return GuiAction::KeyDown(Key::Down),
+                Event::KeyDown {
+                    keycode: Some(Keycode::Left),
+                    ..
+                } => return GuiAction::KeyDown(Key::Left),
+                Event::KeyDown {
+                    keycode: Some(Keycode::Right),
+                    ..
+                } => return GuiAction::KeyDown(Key::Right),
+                Event::KeyUp {
+                    keycode: Some(Keycode::Z),
+                    ..
+                } => return GuiAction::KeyUp(Key::B),
+                Event::KeyUp {
+                    keycode: Some(Keycode::X),
+                    ..
+                } => return GuiAction::KeyUp(Key::A),
+                Event::KeyUp {
+                    keycode: Some(Keycode::Return),
+                    ..
+                } => return GuiAction::KeyUp(Key::Start),
+                Event::KeyUp {
+                    keycode: Some(Keycode::Tab),
+                    ..
+                } => return GuiAction::KeyUp(Key::Select),
+                Event::KeyUp {
+                    keycode: Some(Keycode::Up),
+                    ..
+                } => return GuiAction::KeyUp(Key::Up),
+                Event::KeyUp {
+                    keycode: Some(Keycode::Down),
+                    ..
+                } => return GuiAction::KeyUp(Key::Down),
+                Event::KeyUp {
+                    keycode: Some(Keycode::Left),
+                    ..
+                } => return GuiAction::KeyUp(Key::Left),
+                Event::KeyUp {
+                    keycode: Some(Keycode::Right),
+                    ..
+                } => return GuiAction::KeyUp(Key::Right),
+                _ => (),
             }
         }
 
