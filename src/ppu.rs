@@ -534,18 +534,21 @@ impl PPU {
 
     fn fetch_sprite_pixels(&self, bg_color_index: usize, default_color: u32) -> u32 {
         let mut color = default_color;
+        let fifo_x = self.pixel_fifo.fifo_x as i32;
+        let scroll_x = self.lcd.scroll_x as i32;
+
         for i in 0..self.fetched_entries.len() {
             let entry = &self.fetched_entries[i];
-            let sp_x = (entry.x - 8) + (self.lcd.scroll_x % 8);
+            let sp_x = (entry.x as i32 - 8) + (scroll_x % 8);
 
-            if (sp_x + 8) < self.pixel_fifo.fifo_x {
+            if (sp_x + 8) < fifo_x {
                 // Passed pixel point already
                 continue;
             }
-            // TODO: Is wrapping_sub correct?
-            let offset = self.pixel_fifo.fifo_x.wrapping_sub(sp_x);
 
-            if offset > 7 {
+            let offset = fifo_x - sp_x;
+
+            if !(0..=7).contains(&offset) {
                 // Out of bounds
                 continue;
             }
