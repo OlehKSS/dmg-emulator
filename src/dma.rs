@@ -1,8 +1,6 @@
 use super::bus::MemoryBus;
 use super::ppu::PPU;
 
-// use std::{thread, time};
-
 pub struct DMA {
     active: bool,
     byte: u8,
@@ -25,8 +23,6 @@ impl DMA {
         self.byte = 0;
         self.start_delay = 2;
         self.value = value;
-
-        // println!("DMA started.");
     }
 
     pub fn tick_cycle(&mut self, bus: &MemoryBus, ppu: &mut PPU) {
@@ -39,17 +35,12 @@ impl DMA {
             return;
         }
 
-        let address = (self.value as u16) * 0x100;
+        let address = (self.value as u16) * 0x100 + (self.byte as u16);
         let oam_value = bus.read(address);
         ppu.oam_write(self.byte as u16, oam_value);
 
         self.byte += 1;
         self.active = self.byte < 0xA0; // Up to 160 bytes
-
-        // if !self.active {
-        //     println!("DMA Done!");
-        //     thread::sleep(time::Duration::from_secs(60));
-        // }
     }
 
     pub fn is_active(&self) -> bool {
