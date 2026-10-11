@@ -1,6 +1,9 @@
+use core::panic;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs;
+use std::fs::File;
+use std::io::prelude::*;
 
 #[derive(Debug)]
 #[allow(dead_code)]
@@ -433,8 +436,18 @@ impl CartridgeHeader {
 pub struct Cartridge {
     pub file: String,
     pub size: u32,
-    pub data: Vec<u8>,
     pub header: CartridgeHeader,
+    rom_data: Vec<u8>,
+    ram_data: Vec<u8>,
+    // MBC1
+    ram_bank_register: u8,
+    rom_bank_register: u8,
+    ram_enabled: bool,
+    ram_banking: bool,
+    banking_mode: u8,
+    has_battery: bool,
+    need_save: bool,
+    ram_save_path: Option<String>,
 }
 
 impl Cartridge {
@@ -464,11 +477,170 @@ impl Cartridge {
         );
         println!("\t ROM Vers : {}", rom_header.rom_version);
 
+        // Setup banking
+        let ram_size_byte = rom_contents[0x149] as usize;
+        let mut ram_data = match ram_size_byte {
+            0 => vec![], // Cartridges with no RAM banking
+            2 => vec![0u8; 0x2000],
+            3 => vec![0u8; 0x2000 * 4],
+            4 => vec![0u8; 0x2000 * 16],
+            5 => vec![0u8; 0x2000 * 8],
+            _ => panic!("Unimplemented ram size byte value {}", ram_size_byte),
+        };
+
+        // TODO: Implement the rest, MBC1 only for now
+        let has_battery = matches!(rom_header.rom_type, 3);
+
+        let mut ram_save_path = Option::None;
+
+        if has_battery {
+            ram_save_path = Option::Some(std::format!("{}.battery", file));
+            Self::battery_load(
+                ram_save_path.as_deref().unwrap(),
+                &rom_header,
+                &mut ram_data,
+            );
+        }
+
         Ok(Cartridge {
             file: file.to_string(),
             size: rom_contents.len() as u32,
-            data: rom_contents,
+            rom_data: rom_contents,
+            ram_data,
+            ram_bank_register: 0,
+            rom_bank_register: 1, // MBC1 hardware, the secondary ROM bank ($4000..=$7FFF) defaults to Bank 1 on power-up
+            banking_mode: 0,
             header: rom_header,
+            ram_enabled: false,
+            ram_banking: false,
+            has_battery,
+            need_save: false,
+            ram_save_path,
         })
+    }
+
+    pub fn read(&self, address: u16) -> u8 {
+        if !self.mbc1() {
+            return self.rom_data[address as usize % self.rom_data.len()];
+        }
+
+        if address < 0x4000 {
+            let rom_bank = self.rom_bank_0_index() + (address & 0x3FFF) as usize;
+            return self.rom_data[rom_bank % self.rom_data.len()];
+        }
+
+        // A000-BFFF - RAM bank 00-03, if any (read/write)
+        if (address & 0xE000) == 0xA000 {
+            if !self.ram_enabled {
+                return 0xFF; // Open bus behavior (returns high impedance lines)
+            }
+
+            let ram_address = self.ram_bank_index() + (address & 0x1FFF) as usize;
+            return self.ram_data[ram_address % self.ram_data.len()];
+        }
+
+        let rom_bank_address = self.rom_bank_x_index() + (address & 0x3FFF) as usize;
+        self.rom_data[rom_bank_address % self.rom_data.len()]
+    }
+
+    pub fn write(&mut self, address: u16, value: u8) {
+        if !self.mbc1() {
+            return;
+        }
+        match address {
+            // 0000-1FFF - RAM enable register (write only)
+            0x0000..=0x1FFF => {
+                self.ram_enabled = (value & 0xF) == 0xA;
+            }
+            // 2000-3FFF - ROM bank number register (write only)
+            0x2000..=0x3FFF => {
+                let mut bank = value & 0x1F;
+                if bank == 0 {
+                    bank = 1;
+                } // MBC1 quirk: 0, 20, 40, 60 translate up!
+                self.rom_bank_register = bank;
+            }
+            // 4000-5FFF - RAM bank number or upper bits of ROM bank number register (write only)
+            0x4000..=0x5FFF => {
+                self.ram_bank_register = value & 0b11;
+            }
+            // 6000-7FFF - Banking mode select register (write only)
+            0x6000..=0x7FFF => {
+                self.banking_mode = value & 1;
+                self.ram_banking = self.banking_mode == 1;
+            }
+            // A000-BFFF - RAM bank 00-03, if any (read/write)
+            0xA000..=0xBFFF => {
+                if !self.ram_enabled {
+                    return;
+                }
+
+                let ram_address_index =
+                    (self.ram_bank_index() + (address & 0x1FFF) as usize) % self.ram_data.len();
+                self.ram_data[ram_address_index] = value;
+
+                if self.has_battery {
+                    self.need_save = true;
+                }
+            }
+            _ => (),
+        }
+    }
+
+    fn rom_bank_0_index(&self) -> usize {
+        if self.banking_mode == 1 {
+            (self.ram_bank_register as usize) << 19
+        } else {
+            0
+        }
+    }
+
+    fn rom_bank_x_index(&self) -> usize {
+        if self.banking_mode == 0 {
+            ((self.ram_bank_register << 5 | self.rom_bank_register) as usize) << 14
+        } else {
+            (self.rom_bank_register as usize) << 14
+        }
+    }
+
+    fn ram_bank_index(&self) -> usize {
+        if self.banking_mode == 1 {
+            (self.ram_bank_register as usize) << 13
+        } else {
+            0
+        }
+    }
+
+    pub fn mbc1(&self) -> bool {
+        (1..=3).contains(&self.header.rom_type)
+    }
+
+    fn battery_load(path: &str, rom_header: &CartridgeHeader, ram_data: &mut [u8]) {
+        if let Ok(mut file) = File::open(path) {
+            if let Ok(n_bytes) = file.read(ram_data) {
+                if n_bytes != 0x2000 {
+                    panic!(
+                        "Expected to read 0x2000 bytes of ram storage, read {n_bytes:X} instead."
+                    );
+                }
+            } else {
+                panic!(
+                    "Failed to load saved RAM {}.battery",
+                    rom_header.destination
+                );
+            }
+        }
+    }
+
+    pub fn battery_save(&mut self) {
+        if !self.need_save || self.ram_data.is_empty() {
+            return;
+        }
+        self.need_save = false;
+
+        if let Some(path) = &self.ram_save_path {
+            let mut file = File::create(path).unwrap();
+            file.write_all(&self.ram_data).unwrap();
+        }
     }
 }

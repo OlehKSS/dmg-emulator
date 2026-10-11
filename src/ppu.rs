@@ -358,12 +358,14 @@ impl PPU {
     }
 
     fn pipeline_load_sprite_tile(&mut self) {
-        for entry in &self.line_sprites {
-            let sp_x = (entry.x - 8) + (self.lcd.scroll_x % 8);
+        let fetch_x = self.pixel_fifo.fetch_x as i32;
+        let scroll_x = self.lcd.scroll_x as i32;
 
-            if (sp_x >= self.pixel_fifo.fetch_x && sp_x < (self.pixel_fifo.fetch_x + 8))
-                || ((sp_x + 8) >= self.pixel_fifo.fetch_x
-                    && (sp_x + 8) < (self.pixel_fifo.fetch_x + 8))
+        for entry in &self.line_sprites {
+            let sp_x = (entry.x as i32 - 8) + (scroll_x % 8);
+
+            if (sp_x >= fetch_x && sp_x < (fetch_x + 8))
+                || ((sp_x + 8) >= fetch_x && (sp_x + 8) < (fetch_x + 8))
             {
                 self.fetched_entries.push(entry.clone());
             }
@@ -404,15 +406,19 @@ impl PPU {
             return;
         }
 
-        if (self.pixel_fifo.fetch_x + 7) >= self.lcd.win_x
-            && (self.pixel_fifo.fetch_x + 7) < (self.lcd.win_x + (YRES as u8) + 14)
-            && self.lcd.ly >= self.lcd.win_y
-            && self.lcd.ly < (self.lcd.win_y + (XRES as u8))
+        let fetch_x = self.pixel_fifo.fetch_x as i32;
+        let win_x = self.lcd.win_x as i32;
+        let win_y = self.lcd.win_y as i32;
+        let ly = self.lcd.ly as i32;
+
+        if (fetch_x + 7) >= win_x
+            && (fetch_x + 7) < (win_x + (XRES as i32) + 14)
+            && ly >= win_y
+            && ly < (win_y + (YRES as i32))
         {
             let window_tile_y = (self.window_line as u16) / 8;
-            let address = self.lcd.get_win_map_area()
-                + (((self.pixel_fifo.fetch_x + 7 - self.lcd.win_x) / 8) as u16)
-                + (window_tile_y * 32);
+            let tile_x = ((fetch_x + 7 - win_x) / 8) as u16;
+            let address = self.lcd.get_win_map_area() + tile_x + (window_tile_y * 32);
             self.pixel_fifo.bgw_fetch_data[0] = self.vram_read(address);
 
             if self.lcd.get_bgw_data_area() == 0x8800 {
@@ -586,7 +592,7 @@ impl PPU {
     pub fn increment_ly<I: InterruptRequest>(&mut self, ctx: &mut I) {
         if self.lcd.is_window_visible()
             && self.lcd.ly >= self.lcd.win_y
-            && self.lcd.ly < (self.lcd.win_y + (YRES as u8))
+            && (self.lcd.ly as usize) < (self.lcd.win_y as usize) + YRES
         {
             self.window_line += 1;
         }

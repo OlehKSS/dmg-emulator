@@ -123,9 +123,9 @@ impl MemoryBus {
 
     pub fn read(&self, address: u16) -> u8 {
         match address {
-            0..=0x7FFF => self.rom.as_ref().unwrap().data[address as usize],
+            0..=0x7FFF => self.rom.as_ref().unwrap().read(address),
             0x8000..=0x9FFF => self.bytes[address as usize],
-            0xA000..=0xBFFF => self.rom.as_ref().unwrap().data[address as usize],
+            0xA000..=0xBFFF => self.rom.as_ref().unwrap().read(address),
             0xC000..=0xCFFF => self.bytes[address as usize],
             0xD000..=0xDFFF => {
                 // In DMG mode, 0xD000 - 0xDFFF mirrors 0xC000 - 0xCFFF (RAM Bank 0).
@@ -163,18 +163,28 @@ impl MemoryBus {
 
     pub fn write(&mut self, address: u16, value: u8) {
         // TODO: Should we enable mirroring?
-        self.bytes[address as usize] = value;
+        match address {
+            0..=0x7FFF => self.rom.as_mut().unwrap().write(address, value),
+            0xA000..=0xBFFF => self.rom.as_mut().unwrap().write(address, value),
+            _ => self.bytes[address as usize] = value,
+        }
     }
 
     pub fn write16(&mut self, address: u16, value: u16) {
         let lo = (value & 0x00FF) as u8;
         let hi = ((value >> 8) & 0x00FF) as u8;
-        self.bytes[address as usize] = lo;
-        self.bytes[(address + 1) as usize] = hi;
+        self.write(address, lo);
+        self.write(address + 1, hi);
     }
 
     pub fn write_register(&mut self, register: HardwareRegister, value: u8) {
         let address = register as u16;
         self.write(address, value);
+    }
+
+    pub fn battery_save(&mut self) {
+        if self.rom.is_some() {
+            self.rom.as_mut().unwrap().battery_save();
+        }
     }
 }

@@ -73,6 +73,10 @@ impl CpuContext for Emulator {
                 self.ppu.oam_write(address, value);
             }
             0xFF00..=0xFF7F | 0xFFFF => {
+                if (0xFF10..=0xFF3F).contains(&address) {
+                    // TODO: Implement sound support, ignoring atm
+                    return;
+                }
                 let register = HardwareRegister::from_u16(address);
                 match register {
                     Some(HardwareRegister::SB) => {
@@ -162,6 +166,10 @@ impl CpuContext for Emulator {
                 self.ppu.oam_read(address)
             }
             0xFF00..=0xFF7F | 0xFFFF => {
+                if (0xFF10..=0xFF3F).contains(&address) {
+                    // TODO: Implement sound support, ignoring atm
+                    return 0;
+                }
                 let register = HardwareRegister::from_u16(address);
                 match register {
                     Some(HardwareRegister::SB) | Some(HardwareRegister::SC) => {
@@ -268,6 +276,7 @@ impl Emulator {
                         *pixel_color = emu.ppu.video_buffer_read(i);
                     }
                     frame_ready = true;
+                    emu.bus.battery_save();
                 }
 
                 match action {
